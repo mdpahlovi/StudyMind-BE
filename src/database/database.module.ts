@@ -1,16 +1,16 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
+import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
 import * as schema from './schemas';
 
-export const DATABASE_CONNECTION = Symbol('DATABASE_CONNECTION');
+export const DrizzleProvider = 'DrizzleProvider';
 
 @Global()
 @Module({
     providers: [
         {
-            provide: DATABASE_CONNECTION,
+            provide: DrizzleProvider,
             inject: [ConfigService],
             useFactory: async (configService: ConfigService) => {
                 const databaseUrl = configService.get<string>('database.url');
@@ -19,11 +19,12 @@ export const DATABASE_CONNECTION = Symbol('DATABASE_CONNECTION');
                     throw new Error('DATABASE_URL is not defined');
                 }
 
-                const client = postgres(databaseUrl);
-                return drizzle(client, { schema });
+                const pool = new Pool({ connectionString: databaseUrl });
+
+                return drizzle(pool, { schema }) as NodePgDatabase<typeof schema>;
             },
         },
     ],
-    exports: [DATABASE_CONNECTION],
+    exports: [DrizzleProvider],
 })
 export class DatabaseModule {}

@@ -1,28 +1,22 @@
-import { pgTable, serial, varchar, timestamp, boolean, text } from 'drizzle-orm/pg-core';
+import { boolean, pgEnum, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
 import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
-import { z } from 'zod';
+
+const providerEnum = pgEnum('provider', ['CREDENTIAL', 'GOOGLE', 'FACEBOOK']);
 
 export const users = pgTable('users', {
     id: serial('id').primaryKey(),
-    name: text('name'),
-    email: varchar('email', { length: 255 }).notNull().unique(),
-    phone: varchar('phone', { length: 15 }).notNull().unique(),
-    password: text('password').notNull(),
-    provider: text('provider').$type<'credential' | 'google' | 'facebook'>(),
+    name: text('name').notNull(),
+    email: text('email').notNull(),
+    phone: text('phone'),
+    password: text('password'),
+    provider: providerEnum('provider').notNull(),
     isActive: boolean('is_active').default(true),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
 });
 
 // Zod schemas for validation
-export const createUserSchema = createInsertSchema(users, {
-    name: z.string().min(3).max(100),
-    email: z.string().email(),
-    phone: z.string().min(11).max(15),
-    password: z.string().min(6),
-    provider: z.enum(['credential', 'google', 'facebook']),
-});
-
+export const createUserSchema = createInsertSchema(users);
 export const selectUserSchema = createSelectSchema(users);
 
 export type User = typeof users.$inferSelect;
