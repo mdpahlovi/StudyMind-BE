@@ -1,4 +1,5 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import * as moment from 'moment';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
@@ -15,9 +16,9 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, Response<T>> {
         return next.handle().pipe(
             map(data => ({
                 success: true,
-                message: 'Request successful',
-                data,
-                timestamp: new Date().toISOString(),
+                message: data.message || 'Request successful',
+                data: data.data,
+                timestamp: moment().format('DD MMM YYYY hh:mm'),
             })),
         );
     }

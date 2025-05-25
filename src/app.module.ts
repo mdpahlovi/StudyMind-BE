@@ -3,12 +3,15 @@ import { AppService } from '@/app.service';
 import { CommonModule } from '@/common/common.module';
 import configuration from '@/config/configuration';
 import { DatabaseModule } from '@/database/database.module';
+import { AuthGuard } from '@/guards/auth.guard';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { HealthModule } from '@/modules/health/health.module';
 import { UserModule } from '@/modules/user/user.module';
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
 
 @Module({
     imports: [
@@ -17,16 +20,11 @@ import { JwtModule } from '@nestjs/jwt';
             load: [configuration],
             envFilePath: '.env',
         }),
-        JwtModule.registerAsync({
-            inject: [ConfigService],
-            useFactory: async (configService: ConfigService) => ({
-                global: true,
-                secret: configService.get<string>('jwt.secret'),
-                signOptions: {
-                    expiresIn: configService.get<string>('jwt.expiresIn'),
-                },
-            }),
+        JwtModule.register({
+            global: true,
+            secret: configuration().jwt.secret,
         }),
+        PassportModule.register({ defaultStrategy: 'jwt' }),
         DatabaseModule,
         CommonModule,
         HealthModule,
@@ -34,6 +32,6 @@ import { JwtModule } from '@nestjs/jwt';
         AuthModule,
     ],
     controllers: [AppController],
-    providers: [AppService],
+    providers: [AppService, { provide: APP_GUARD, useClass: AuthGuard }],
 })
 export class AppModule {}

@@ -5,6 +5,8 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as compression from 'compression';
 import helmet from 'helmet';
+import { ErrorInterceptor } from './common/interceptors/error.interceptor';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
 async function bootstrap() {
     const app = await NestFactory.create(AppModule);
@@ -32,6 +34,9 @@ async function bootstrap() {
             },
         }),
     );
+
+    // Global interceptor
+    app.useGlobalInterceptors(new ErrorInterceptor(), new ResponseInterceptor());
 
     // API versioning
     app.enableVersioning({
