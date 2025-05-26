@@ -6,6 +6,7 @@ import { DatabaseModule } from '@/database/database.module';
 import { AuthGuard } from '@/guards/auth.guard';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { HealthModule } from '@/modules/health/health.module';
+import { LibraryModule } from '@/modules/library/library.module';
 import { UserModule } from '@/modules/user/user.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
@@ -30,6 +31,7 @@ import { PassportModule } from '@nestjs/passport';
         HealthModule,
         UserModule,
         AuthModule,
+        LibraryModule,
     ],
     controllers: [AppController],
     providers: [AppService, { provide: APP_GUARD, useClass: AuthGuard }],
