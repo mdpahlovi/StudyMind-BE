@@ -2,7 +2,7 @@ import { HashService } from '@/common/services/hash.service';
 import { DatabaseService } from '@/database/database.service';
 import { CreateUser, User, users } from '@/database/schemas/user.schema';
 import { LoginUserDto, RegisterUserDto } from '@/modules/auth/auth.dto';
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { eq } from 'drizzle-orm';
 
@@ -27,21 +27,21 @@ export class AuthService {
 
         // If user does not exist, throw error
         if (!user) {
-            throw new UnauthorizedException('No user found with this credentials');
+            throw new NotFoundException('No user found with this credentials');
         }
 
         // If user has no password, throw error
         if (!user.password) {
             if (user.provider !== 'CREDENTIAL') {
-                throw new UnauthorizedException(`Please use ${user.provider.toLowerCase()} to login`);
+                throw new BadRequestException(`Please use ${user.provider.toLowerCase()} to login`);
             } else {
-                throw new UnauthorizedException('Please reset your password');
+                throw new BadRequestException('Please reset your password');
             }
         }
 
         // If password does not match, throw error
         if (!(await this.hashService.compare(password, user.password))) {
-            throw new UnauthorizedException('No user found with this credentials');
+            throw new NotFoundException('No user found with this credentials');
         }
 
         delete user.password;
@@ -63,23 +63,30 @@ export class AuthService {
 
         // If user already exists, throw error
         if (existingUser) {
-            throw new ConflictException(`An account already exists with '${email}'. Please login.`);
+            throw new BadRequestException(`An account already exists with '${email}'. Please login.`);
         }
 
         const hashedPassword = await this.hashService.hash(password);
 
         const createUserPayload: CreateUser = {
+            isActive: true,
             name,
             email,
             password: hashedPassword,
             provider: 'CREDENTIAL',
-            isActive: true,
         };
 
         const [createdUser] = await db.insert(users).values(createUserPayload).returning();
 
         delete createdUser.password;
-        return { message: 'User registered successfully', data: createdUser };
+        return {
+            message: 'User registered successfully',
+            data: {
+                user: createdUser,
+                accessToken: this.jwtService.sign(createdUser, { expiresIn: '1h' }),
+                refreshToken: this.jwtService.sign(createdUser, { expiresIn: '7d' }),
+            },
+        };
     }
 
     async validateOAuthLogin(profile: OAuthUserProfile, provider: 'GOOGLE' | 'FACEBOOK') {
@@ -93,16 +100,16 @@ export class AuthService {
                 provider: provider,
             };
 
-            const [updatedUser] = await db.update(users).set(updateUserPayload).where(eq(users.id, user.id)).returning();
+            const [updatedUser] = await db.update(users).set(updateUserPayload).where(eq(users.uid, user.uid)).returning();
             return updatedUser;
         } else {
             const createUserPayload = {
+                isActive: true,
                 name: profile.name,
                 email: profile.email,
                 photo: profile.picture,
                 provider: provider,
                 password: null,
-                isActive: true,
             };
 
             const [createdUser] = await db.insert(users).values(createUserPayload).returning();

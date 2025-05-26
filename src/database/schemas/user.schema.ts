@@ -1,17 +1,19 @@
-import { boolean, pgEnum, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, jsonb, pgEnum, pgTable, serial, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
 
 export const providerEnum = pgEnum('provider', ['CREDENTIAL', 'GOOGLE', 'FACEBOOK']);
 
 export const users = pgTable('users', {
     id: serial('id').primaryKey(),
+    uid: uuid('uid').notNull().unique().defaultRandom(),
+    isActive: boolean('is_active').default(true),
     name: text('name').notNull(),
-    email: text('email').notNull(),
+    email: text('email').notNull().unique(),
     phone: text('phone'),
     photo: text('photo'),
     password: text('password'),
     provider: providerEnum('provider').notNull(),
-    isActive: boolean('is_active').default(true),
+    otherInfo: jsonb('other_info'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
 });
