@@ -1,5 +1,5 @@
 // src/auth/strategies/facebook.strategy.ts
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Profile, Strategy } from 'passport-facebook';
@@ -28,7 +28,7 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
     ): Promise<any> {
         const { name, emails, photos } = profile;
         if (!emails || emails.length === 0) {
-            return done(new UnauthorizedException('Facebook account email not found.'), false);
+            return done(new NotFoundException('Facebook account email not found.'), false);
         }
 
         const facebookUser = {

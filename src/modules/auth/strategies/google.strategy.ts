@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Profile, Strategy, VerifyCallback } from 'passport-google-oauth20';
@@ -21,7 +21,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     async validate(accessToken: string, refreshToken: string, profile: Profile, done: VerifyCallback) {
         const { name, emails, photos } = profile;
         if (!emails || emails.length === 0) {
-            return done(new UnauthorizedException('Google account email not found.'), false);
+            return done(new NotFoundException('Google account email not found.'), false);
         }
 
         const googleUser = {

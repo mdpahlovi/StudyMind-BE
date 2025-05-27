@@ -25,5 +25,6 @@ export const libraryItem = pgTable('library_item', {
 export const createLibraryItemSchema = createInsertSchema(libraryItem);
 export const selectLibraryItemSchema = createSelectSchema(libraryItem);
 
+export type LibraryItemType = (typeof libraryItemTypeEnum.enumValues)[number];
 export type LibraryItem = typeof libraryItem.$inferSelect;
 export type CreateLibraryItem = typeof libraryItem.$inferInsert;

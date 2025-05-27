@@ -13,7 +13,6 @@ export class AuthGuard implements CanActivate {
     ) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
-        // Check if the route is marked as public
         const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(), context.getClass()]);
 
         if (isPublic) return true;
@@ -28,30 +27,22 @@ export class AuthGuard implements CanActivate {
             throw new UnauthorizedException('Please login');
         }
 
-        try {
-            if (accessToken) {
-                const user = await this.verifyToken(accessToken);
-
-                request.user = user;
-                return true;
-            }
-        } catch (error) {
-            if (refreshToken) {
-                try {
-                    const user = await this.verifyToken(refreshToken);
-
-                    const accessToken = this.jwtService.sign(user, { expiresIn: '1h' });
-                    response.setHeader('Authorization', `Bearer ${accessToken}`);
-
-                    request.user = user;
-                    return true;
-                } catch (refreshError) {
-                    throw new UnauthorizedException('Invalid refresh token');
-                }
-            }
-
-            throw new UnauthorizedException('Invalid access and refresh token');
+        // Try to authenticate with access token first
+        const userFromAccessToken = await this.tryVerifyAccessToken(accessToken);
+        if (userFromAccessToken) {
+            request.user = userFromAccessToken;
+            return true;
         }
+
+        // If access token failed, try refresh token
+        const userFromRefreshToken = await this.tryRefreshTokenFlow(refreshToken, response);
+        if (userFromRefreshToken) {
+            request.user = userFromRefreshToken;
+            return true;
+        }
+
+        // Both tokens failed
+        throw new UnauthorizedException('Invalid access and refresh token');
     }
 
     private getAccessToken(request: Request): string | null {
@@ -60,18 +51,44 @@ export class AuthGuard implements CanActivate {
     }
 
     private getRefreshToken(request: Request): string | null {
-        return request.cookies?.refreshToken || null;
+        return (request.headers['x-refresh-token'] as string) || null;
     }
 
     private async verifyToken(token: string): Promise<User> {
         try {
             const payload = await this.jwtService.verifyAsync(token);
 
+            // Clean up JWT metadata
             delete payload.iat;
             delete payload.exp;
-            return payload;
+
+            return payload as User;
         } catch (error) {
             throw new UnauthorizedException('Invalid token');
+        }
+    }
+
+    private async tryVerifyAccessToken(accessToken: string | null): Promise<User | null> {
+        try {
+            return await this.verifyToken(accessToken);
+        } catch (error) {
+            return null;
+        }
+    }
+
+    private async tryRefreshTokenFlow(refreshToken: string | null, response: Response): Promise<User | null> {
+        if (!refreshToken) return null;
+
+        try {
+            const user = await this.verifyToken(refreshToken);
+
+            // Generate new access token
+            const newAccessToken = this.jwtService.sign(user, { expiresIn: '1h' });
+            response.setHeader('x-access-token', newAccessToken);
+
+            return user;
+        } catch (error) {
+            throw new UnauthorizedException('Invalid refresh token');
         }
     }
 }

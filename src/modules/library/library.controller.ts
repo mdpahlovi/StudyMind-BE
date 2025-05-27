@@ -1,5 +1,8 @@
+import { User } from '@/database/schemas';
+import { CurrentUser } from '@/decorators/current-user.decorator';
+import { CreateLibraryItemDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { LibraryService } from '@/modules/library/library.service';
-import { Controller, Delete, Get, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 @ApiTags('Library')
@@ -7,27 +10,21 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 export class LibraryController {
     constructor(private readonly libraryService: LibraryService) {}
 
-    @ApiOperation({ summary: 'Get all library items' })
+    @ApiOperation({ summary: 'Retrieve all library item' })
     @Get()
-    async getLibraryItems() {
-        return this.libraryService.getLibraryItems();
+    async getLibraryItems(@Query() query: any, @CurrentUser() user: User) {
+        return this.libraryService.getLibraryItems(query, user);
     }
 
     @ApiOperation({ summary: 'Create a new library item' })
     @Post()
-    async createLibraryItem() {
-        return this.libraryService.createLibraryItem();
+    async createLibraryItem(@Body() body: CreateLibraryItemDto, @CurrentUser() user: User) {
+        return this.libraryService.createLibraryItem(body, user);
     }
 
     @ApiOperation({ summary: 'Update a library item' })
-    @Patch()
-    async updateLibraryItem() {
-        return this.libraryService.updateLibraryItem();
-    }
-
-    @ApiOperation({ summary: 'Library item status update' })
-    @Delete()
-    async deleteLibraryItem() {
-        return this.libraryService.deleteLibraryItem();
+    @Patch(':uid')
+    async updateLibraryItem(@Param('uid') uid: string, @Body() body: UpdateLibraryItemDto, @CurrentUser() user: User) {
+        return this.libraryService.updateLibraryItem(uid, body, user);
     }
 }
