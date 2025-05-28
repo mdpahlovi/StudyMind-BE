@@ -3,7 +3,7 @@ import { User } from '@/database/schemas';
 import { libraryItem } from '@/database/schemas/library.schema';
 import { CreateLibraryItemDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, count, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, isNull, ne, sql } from 'drizzle-orm';
 
 @Injectable()
 export class LibraryService {
@@ -74,7 +74,7 @@ export class LibraryService {
         const libraryItemWhere = [
             eq(libraryItem.isActive, true),
             eq(libraryItem.userId, user.id),
-            type ? eq(libraryItem.type, type) : null,
+            type ? eq(libraryItem.type, type) : ne(libraryItem.type, 'FOLDER'),
             ilike(libraryItem.name, `%${search}%`),
         ];
         const libraryItemOrder = [desc(libraryItem.createdAt), asc(libraryItem.name)];
