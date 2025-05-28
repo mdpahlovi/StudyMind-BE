@@ -3,7 +3,7 @@ import { User } from '@/database/schemas';
 import { libraryItem } from '@/database/schemas/library.schema';
 import { CreateLibraryItemDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, count, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 
 @Injectable()
 export class LibraryService {
@@ -59,6 +59,60 @@ export class LibraryService {
                 libraryItems: libraryItems || [],
                 total: total?.length ? total[0].count : 0,
             },
+        };
+    }
+
+    async getLibraryItemsByType(query: any, user: User) {
+        const db = this.databaseService.database;
+
+        const search = query.search || '';
+        const type = query.type || '';
+        const page = query.page ? Number(query.page) : 1;
+        const limit = query.limit ? Number(query.limit) : 12;
+        const offset = (page - 1) * limit;
+
+        const libraryItemWhere = [
+            eq(libraryItem.isActive, true),
+            eq(libraryItem.userId, user.id),
+            type ? eq(libraryItem.type, type) : null,
+            ilike(libraryItem.name, `%${search}%`),
+        ];
+        const libraryItemOrder = [desc(libraryItem.createdAt), asc(libraryItem.name)];
+
+        const total = await db
+            .select({ count: count() })
+            .from(libraryItem)
+            .where(and(...libraryItemWhere));
+
+        const libraryItems = await db
+            .select()
+            .from(libraryItem)
+            .where(and(...libraryItemWhere))
+            .orderBy(...libraryItemOrder)
+            .limit(limit)
+            .offset(offset);
+
+        return {
+            message: 'Library items fetched successfully',
+            data: {
+                libraryItems: libraryItems || [],
+                total: total?.length ? total[0].count : 0,
+            },
+        };
+    }
+
+    async getLibraryItemByUid(uid: string, user: User) {
+        const db = this.databaseService.database;
+
+        const itemData = await db.select().from(libraryItem).where(eq(libraryItem.uid, uid));
+
+        if (!itemData?.length) {
+            throw new NotFoundException('Library item not found');
+        }
+
+        return {
+            message: 'Library item fetched successfully',
+            data: itemData[0],
         };
     }
 

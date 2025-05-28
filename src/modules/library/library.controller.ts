@@ -16,6 +16,18 @@ export class LibraryController {
         return this.libraryService.getLibraryItems(query, user);
     }
 
+    @ApiOperation({ summary: 'Retrieve library items by type' })
+    @Get('by-type')
+    async getLibraryItemsByType(@Query() query: any, @CurrentUser() user: User) {
+        return this.libraryService.getLibraryItemsByType(query, user);
+    }
+
+    @ApiOperation({ summary: 'Retrieve library item by uid' })
+    @Get(':uid')
+    async getLibraryItemByUid(@Param('uid') uid: string, @CurrentUser() user: User) {
+        return this.libraryService.getLibraryItemByUid(uid, user);
+    }
+
     @ApiOperation({ summary: 'Create a new library item' })
     @Post()
     async createLibraryItem(@Body() body: CreateLibraryItemDto, @CurrentUser() user: User) {
