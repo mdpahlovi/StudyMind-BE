@@ -62,7 +62,7 @@ export class LibraryService {
     async createLibraryItem(body: CreateLibraryItemDto, user: User) {
         const db = this.databaseService.database;
 
-        const [createdLibraryItem] = await db
+        const [createdData] = await db
             .insert(libraryItem)
             .values({
                 name: body.name,
@@ -75,7 +75,7 @@ export class LibraryService {
             })
             .returning();
 
-        return { message: 'Library item created successfully', data: createdLibraryItem };
+        return { message: 'Library item created successfully', data: createdData };
     }
 
     async updateLibraryItem(uid: string, body: UpdateLibraryItemDto, user: User) {
@@ -87,7 +87,7 @@ export class LibraryService {
             throw new NotFoundException('Library item not found');
         }
 
-        const [updatedLibraryItem] = await db
+        const [updatedData] = await db
             .update(libraryItem)
             .set({
                 ...(body.isActive ? { isActive: body.isActive } : {}),
@@ -101,6 +101,6 @@ export class LibraryService {
             .where(eq(libraryItem.uid, uid))
             .returning();
 
-        return { message: 'Library item updated successfully', data: updatedLibraryItem };
+        return { message: 'Library item updated successfully', data: updatedData };
     }
 }
