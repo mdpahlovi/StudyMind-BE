@@ -24,23 +24,23 @@ export class LibraryService {
         ];
 
         if (query.parentUid) {
-            const [parentItem] = await db
+            const parentItem = await db
                 .select({
                     id: libraryItem.id,
                 })
                 .from(libraryItem)
                 .where(eq(libraryItem.uid, query.parentUid));
 
-            if (!parentItem) {
+            if (!parentItem?.length) {
                 throw new NotFoundException('Parent library item not found');
             }
 
-            libraryItemWhere.push(eq(libraryItem.parentId, parentItem.id));
+            libraryItemWhere.push(eq(libraryItem.parentId, parentItem[0].id));
         } else {
             libraryItemWhere.push(isNull(libraryItem.parentId));
         }
 
-        const [total] = await db
+        const total = await db
             .select({ count: count() })
             .from(libraryItem)
             .where(and(...libraryItemWhere));
@@ -55,14 +55,17 @@ export class LibraryService {
 
         return {
             message: 'Library items fetched successfully',
-            data: { libraryItems: libraryItems || [], total: total?.count || 0 },
+            data: {
+                libraryItems: libraryItems || [],
+                total: total?.length ? total[0].count : 0,
+            },
         };
     }
 
     async createLibraryItem(body: CreateLibraryItemDto, user: User) {
         const db = this.databaseService.database;
 
-        const [createdData] = await db
+        const createdData = await db
             .insert(libraryItem)
             .values({
                 name: body.name,
@@ -87,7 +90,7 @@ export class LibraryService {
             throw new NotFoundException('Library item not found');
         }
 
-        const [updatedData] = await db
+        const updatedData = await db
             .update(libraryItem)
             .set({
                 ...(body.isActive ? { isActive: body.isActive } : {}),
