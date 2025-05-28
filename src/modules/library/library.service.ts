@@ -3,7 +3,7 @@ import { User } from '@/database/schemas';
 import { libraryItem } from '@/database/schemas/library.schema';
 import { CreateLibraryItemDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, count, eq, isNull, sql } from 'drizzle-orm';
 
 @Injectable()
 export class LibraryService {
@@ -13,37 +13,50 @@ export class LibraryService {
         const db = this.databaseService.database;
 
         const page = query.page ? Number(query.page) : 1;
-        const limit = query.limit ? Number(query.limit) : 20;
+        const limit = query.limit ? Number(query.limit) : 12;
         const offset = (page - 1) * limit;
-        let parent = null;
 
-        const libraryItemWhere = [eq(libraryItem.userId, user.id)];
+        const libraryItemWhere = [eq(libraryItem.isActive, true), eq(libraryItem.userId, user.id)];
+        const libraryItemOrder = [
+            sql`CASE WHEN ${libraryItem.type} = 'FOLDER' THEN 0 ELSE 1 END`,
+            asc(libraryItem.sortOrder),
+            asc(libraryItem.name),
+        ];
 
         if (query.parentUid) {
-            const [parentItem] = await db.select().from(libraryItem).where(eq(libraryItem.uid, query.parentUid));
+            const [parentItem] = await db
+                .select({
+                    id: libraryItem.id,
+                })
+                .from(libraryItem)
+                .where(eq(libraryItem.uid, query.parentUid));
 
             if (!parentItem) {
                 throw new NotFoundException('Parent library item not found');
             }
 
-            parent = parentItem;
-            libraryItemWhere.push(eq(libraryItem.parentId, parent.id));
+            libraryItemWhere.push(eq(libraryItem.parentId, parentItem.id));
+        } else {
+            libraryItemWhere.push(isNull(libraryItem.parentId));
         }
 
         const [total] = await db
-            .select()
+            .select({ count: count() })
             .from(libraryItem)
             .where(and(...libraryItemWhere));
 
-        const [libraryItems] = await db
+        const libraryItems = await db
             .select()
             .from(libraryItem)
             .where(and(...libraryItemWhere))
-            .orderBy(desc(libraryItem.sortOrder))
+            .orderBy(...libraryItemOrder)
             .limit(limit)
             .offset(offset);
 
-        return { message: 'Library items fetched successfully', data: { parent, libraryItems, total } };
+        return {
+            message: 'Library items fetched successfully',
+            data: { libraryItems: libraryItems || [], total: total?.count || 0 },
+        };
     }
 
     async createLibraryItem(body: CreateLibraryItemDto, user: User) {
