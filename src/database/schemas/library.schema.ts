@@ -14,9 +14,7 @@ export const libraryItem = pgTable('library_item', {
     userId: integer('user_id')
         .notNull()
         .references(() => users.id),
-    path: text('path'),
     metadata: jsonb('metadata'),
-    sortOrder: integer('sort_order').default(0),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
 });

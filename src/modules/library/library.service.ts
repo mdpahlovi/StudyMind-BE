@@ -17,11 +17,7 @@ export class LibraryService {
         const offset = (page - 1) * limit;
 
         const libraryItemWhere = [eq(libraryItem.isActive, true), eq(libraryItem.userId, user.id)];
-        const libraryItemOrder = [
-            sql`CASE WHEN ${libraryItem.type} = 'FOLDER' THEN 0 ELSE 1 END`,
-            asc(libraryItem.sortOrder),
-            asc(libraryItem.name),
-        ];
+        const libraryItemOrder = [sql`CASE WHEN ${libraryItem.type} = 'FOLDER' THEN 0 ELSE 1 END`, asc(libraryItem.name)];
 
         if (query.parentUid) {
             const parentItem = await db
@@ -189,9 +185,7 @@ export class LibraryService {
                 type: body.type,
                 parentId: body.parentId,
                 userId: user.id,
-                path: body.path,
                 metadata: body.metadata,
-                sortOrder: body.sortOrder,
             })
             .returning();
 
@@ -214,9 +208,7 @@ export class LibraryService {
                 ...(body.name ? { name: body.name } : {}),
                 ...(body.type ? { type: body.type } : {}),
                 ...(body.parentId ? { parentId: body.parentId } : {}),
-                ...(body.path ? { path: body.path } : {}),
                 ...(body.metadata ? { metadata: body.metadata } : {}),
-                ...(body.sortOrder ? { sortOrder: body.sortOrder } : {}),
             })
             .where(eq(libraryItem.uid, uid))
             .returning();

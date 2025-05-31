@@ -15,17 +15,9 @@ export class CreateLibraryItemDto {
     @IsOptional()
     parentId: number | null;
 
-    @ApiProperty({ description: 'Library item path', example: null })
-    @IsOptional()
-    path: string | null;
-
     @ApiProperty({ description: 'Library item metadata', example: {} })
     @IsOptional()
     metadata: any;
-
-    @ApiProperty({ description: 'Library item sort order', example: 0 })
-    @IsOptional()
-    sortOrder: number;
 }
 
 export class UpdateLibraryItemDto {
@@ -45,15 +37,7 @@ export class UpdateLibraryItemDto {
     @IsOptional()
     parentId: number | null;
 
-    @ApiProperty({ description: 'Library item path', example: null })
-    @IsOptional()
-    path: string | null;
-
     @ApiProperty({ description: 'Library item metadata', example: {} })
     @IsOptional()
     metadata: any;
-
-    @ApiProperty({ description: 'Library item sort order', example: 0 })
-    @IsOptional()
-    sortOrder: number;
 }
