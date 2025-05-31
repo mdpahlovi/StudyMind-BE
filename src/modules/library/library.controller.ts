@@ -22,6 +22,12 @@ export class LibraryController {
         return this.libraryService.getLibraryItemsByType(query, user);
     }
 
+    @ApiOperation({ summary: 'Retrieve library items with path' })
+    @Get('with-path')
+    async getLibraryItemsWithPath(@Query() query: any, @CurrentUser() user: User) {
+        return this.libraryService.getLibraryItemsWithPath(query, user);
+    }
+
     @ApiOperation({ summary: 'Retrieve library item by uid' })
     @Get(':uid')
     async getLibraryItemByUid(@Param('uid') uid: string, @CurrentUser() user: User) {
