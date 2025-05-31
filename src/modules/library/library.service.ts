@@ -161,7 +161,7 @@ export class LibraryService {
 
         return {
             message: 'Library items fetched successfully',
-            data: { libraryItems: libraryItems || [] },
+            data: libraryItems || [],
         };
     }
 
