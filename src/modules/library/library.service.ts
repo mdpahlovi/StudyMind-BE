@@ -2,7 +2,7 @@ import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
 import { libraryItem } from '@/database/schemas/library.schema';
 import { CreateLibraryItemDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, sql } from 'drizzle-orm';
 
 @Injectable()
@@ -189,7 +189,11 @@ export class LibraryService {
             })
             .returning();
 
-        return { message: 'Library item created successfully', data: createdData };
+        if (!createdData?.length) {
+            throw new BadRequestException('Failed to create library item');
+        }
+
+        return { message: 'Library item created successfully', data: createdData[0] };
     }
 
     async updateLibraryItem(uid: string, body: UpdateLibraryItemDto, user: User) {
@@ -213,6 +217,10 @@ export class LibraryService {
             .where(eq(libraryItem.uid, uid))
             .returning();
 
-        return { message: 'Library item updated successfully', data: updatedData };
+        if (!updatedData?.length) {
+            throw new BadRequestException('Failed to update library item');
+        }
+
+        return { message: 'Library item updated successfully', data: updatedData[0] };
     }
 }
