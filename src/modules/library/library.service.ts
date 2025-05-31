@@ -118,7 +118,7 @@ export class LibraryService {
                 name,
                 type,
                 parent_id,
-                name AS path
+                CONCAT('/', name) AS path
             FROM 
                 library_item li
             WHERE 
@@ -133,7 +133,7 @@ export class LibraryService {
                 li.name,
                 li.type,
                 li.parent_id,
-                ci.path || '/' || li.name AS path
+                CONCAT(ci.path, '/', li.name) AS path
             FROM 
                 library_item li
             JOIN 
