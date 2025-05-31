@@ -110,54 +110,53 @@ export class LibraryService {
 
         const type = query.type || '';
 
-        const libraryItems = await db
-            .execute(
-                sql`WITH RECURSIVE child_item AS (
-                        SELECT 
-                            id,
-                            uid,
-                            name,
-                            type,
-                            parent_id,
-                            name AS path
-                        FROM 
-                            library_item li
-                        WHERE 
-                            li.parent_id IS NULL 
-                            AND li.user_id = ${user.id} 
-                            AND li.is_active = TRUE 
-                            AND li.type = ${type}
-                        UNION ALL
-                        SELECT 
-                            li.id,
-                            li.uid,
-                            li.name,
-                            li.type,
-                            li.parent_id,
-                            ci.path || '/' || li.name AS path
-                        FROM 
-                            library_item li
-                        JOIN 
-                            child_item ci ON li.parent_id = ci.id
-                        WHERE 
-                            li.user_id = ${user.id}
-                            AND li.is_active = TRUE
-                            AND li.type = ${type}
-                    )
-                    SELECT 
-                        id,
-                        uid,
-                        name,
-                        type,
-                        parent_id,
-                        path
-                    FROM 
-                        child_item
-                    ORDER BY 
-                        path
-                `,
-            )
-            .then(res => res.rows);
+        const libraryItemsQuery = `
+        WITH RECURSIVE child_item AS (
+            SELECT 
+                id,
+                uid,
+                name,
+                type,
+                parent_id,
+                name AS path
+            FROM 
+                library_item li
+            WHERE 
+                li.parent_id IS NULL 
+                AND li.user_id = ${user.id} 
+                AND li.is_active = TRUE 
+                ${type ? `AND li.type = '${type}'` : ''}
+            UNION ALL
+            SELECT 
+                li.id,
+                li.uid,
+                li.name,
+                li.type,
+                li.parent_id,
+                ci.path || '/' || li.name AS path
+            FROM 
+                library_item li
+            JOIN 
+                child_item ci ON li.parent_id = ci.id
+            WHERE 
+                li.user_id = ${user.id}
+                AND li.is_active = TRUE
+                ${type ? `AND li.type = '${type}'` : ''}
+        )
+        SELECT 
+            id,
+            uid,
+            name,
+            type,
+            parent_id AS "parentId",
+            path
+        FROM 
+            child_item
+        ORDER BY 
+            path;
+        `;
+
+        const libraryItems = await db.execute(sql.raw(libraryItemsQuery)).then(res => res.rows);
 
         return {
             message: 'Library items fetched successfully',

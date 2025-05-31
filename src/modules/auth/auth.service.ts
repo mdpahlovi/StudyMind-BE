@@ -27,7 +27,7 @@ export class AuthService {
 
         // If user does not exist, throw error
         if (!user) {
-            throw new NotFoundException('No user found with this credentials');
+            throw new NotFoundException('Please check your credentials');
         }
 
         // If user has no password, throw error
@@ -41,7 +41,7 @@ export class AuthService {
 
         // If password does not match, throw error
         if (!(await this.hashService.compare(password, user.password))) {
-            throw new NotFoundException('No user found with this credentials');
+            throw new NotFoundException('Please check your credentials');
         }
 
         delete user.password;

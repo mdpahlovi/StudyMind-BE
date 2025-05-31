@@ -21,7 +21,7 @@ export class ErrorInterceptor implements NestInterceptor {
             catchError(err => {
                 let message = err.message || 'Internal server error';
                 let error = err.name ? err.name.replace(/([A-Z])/g, ' $1').trim() : 'Unknown Error';
-                let statusCode = err.getStatus() || HttpStatus.INTERNAL_SERVER_ERROR;
+                let statusCode = err?.getStatus ? err.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
 
                 const errorResponse: ErrorResponse = {
                     success: false,
