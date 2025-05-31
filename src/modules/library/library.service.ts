@@ -130,6 +130,7 @@ export class LibraryService {
                 type: body.type,
                 parentId: body.parentId,
                 userId: user.id,
+                path: body.path,
                 metadata: body.metadata,
                 sortOrder: body.sortOrder,
             })
@@ -154,6 +155,7 @@ export class LibraryService {
                 ...(body.name ? { name: body.name } : {}),
                 ...(body.type ? { type: body.type } : {}),
                 ...(body.parentId ? { parentId: body.parentId } : {}),
+                ...(body.path ? { path: body.path } : {}),
                 ...(body.metadata ? { metadata: body.metadata } : {}),
                 ...(body.sortOrder ? { sortOrder: body.sortOrder } : {}),
             })

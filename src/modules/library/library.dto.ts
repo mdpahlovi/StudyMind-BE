@@ -15,6 +15,10 @@ export class CreateLibraryItemDto {
     @IsOptional()
     parentId: number | null;
 
+    @ApiProperty({ description: 'Library item path', example: null })
+    @IsOptional()
+    path: string | null;
+
     @ApiProperty({ description: 'Library item metadata', example: {} })
     @IsOptional()
     metadata: any;
@@ -40,6 +44,10 @@ export class UpdateLibraryItemDto {
     @ApiProperty({ description: 'Library item parent ID', example: null })
     @IsOptional()
     parentId: number | null;
+
+    @ApiProperty({ description: 'Library item path', example: null })
+    @IsOptional()
+    path: string | null;
 
     @ApiProperty({ description: 'Library item metadata', example: {} })
     @IsOptional()
