@@ -1,5 +1,5 @@
 import { DatabaseService } from '@/database/database.service';
-import { Injectable } from '@nestjs/common';
+import { HttpException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
@@ -11,27 +11,32 @@ export class HealthService {
 
     getHealthStatus() {
         return {
-            status: 'ok',
-            timestamp: new Date().toISOString(),
-            uptime: process.uptime(),
-            environment: this.configService.get<string>('nodeEnv'),
-            version: this.configService.get<string>('appVersion'),
+            message: 'Healthy',
+            data: {
+                status: 'ok',
+                timestamp: new Date().toISOString(),
+                uptime: process.uptime(),
+                environment: this.configService.get<string>('nodeEnv'),
+                version: this.configService.get<string>('appVersion'),
+            },
         };
     }
 
     async getDatabaseHealthStatus() {
         const isDatabaseHealthy = await this.databaseService.isHealthy();
 
+        if (!isDatabaseHealthy) {
+            throw new HttpException('Database is not healthy', 500);
+        }
+
         return {
-            status: 'ok',
-            timestamp: new Date().toISOString(),
-            uptime: process.uptime(),
-            environment: this.configService.get<string>('nodeEnv'),
-            version: this.configService.get<string>('appVersion'),
-            database: {
-                status: isDatabaseHealthy ? 'ok' : 'down',
+            message: 'Database is healthy',
+            data: {
+                status: 'ok',
                 timestamp: new Date().toISOString(),
                 uptime: process.uptime(),
+                environment: this.configService.get<string>('nodeEnv'),
+                version: this.configService.get<string>('appVersion'),
             },
         };
     }

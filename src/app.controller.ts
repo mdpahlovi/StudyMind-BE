@@ -11,7 +11,7 @@ export class AppController {
     @Public()
     @Get()
     @ApiOperation({ summary: 'Get application info' })
-    getHello(): string {
+    getHello() {
         return this.appService.getHello();
     }
 }
