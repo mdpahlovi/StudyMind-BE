@@ -189,7 +189,7 @@ export class LibraryService {
             })
             .returning();
 
-        if (!createdData?.length) {
+        if (!createdData[0] || !createdData[0]?.uid) {
             throw new BadRequestException('Failed to create library item');
         }
 
@@ -217,7 +217,7 @@ export class LibraryService {
             .where(eq(libraryItem.uid, uid))
             .returning();
 
-        if (!updatedData?.length) {
+        if (!updatedData[0] || !updatedData[0]?.uid) {
             throw new BadRequestException('Failed to update library item');
         }
 
