@@ -1,5 +1,6 @@
 import { LibraryItemType } from '@/database/schemas/library.schema';
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsOptional } from 'class-validator';
 
 export class CreateLibraryItemDto {
@@ -16,6 +17,7 @@ export class CreateLibraryItemDto {
     parentId: number | null;
 
     @ApiProperty({ description: 'Library item metadata', example: {} })
+    @Transform(({ value }) => (value ? JSON.parse(value) : null))
     @IsOptional()
     metadata: any;
 }

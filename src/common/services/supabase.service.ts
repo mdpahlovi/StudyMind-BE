@@ -12,12 +12,13 @@ export class SupabaseService {
     private supabase = createClient(this.supabaseUrl, this.supabaseKey);
 
     async uploadFile(file: Express.Multer.File) {
-        const { data, error } = await this.supabase.storage.from('studymind').upload(`${Date.now()}-${file.originalname}`, file.buffer);
+        const filePath = `${Date.now()}-${file.originalname}`;
+        const { data, error } = await this.supabase.storage.from('studymind').upload(filePath, file.buffer);
         if (error) {
             throw new HttpException(error.message, (error as any)?.statusCode ? Number((error as any)?.statusCode) : 500);
         }
 
-        const { publicUrl } = this.supabase.storage.from('studymind').getPublicUrl(data.path).data;
-        return publicUrl;
+        const { publicUrl: fileUrl } = this.supabase.storage.from('studymind').getPublicUrl(data.path).data;
+        return { filePath, fileUrl, fileSize: file.size };
     }
 }

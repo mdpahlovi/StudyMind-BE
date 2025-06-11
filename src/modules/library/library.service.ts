@@ -71,17 +71,23 @@ export class LibraryService {
         const limit = query.limit ? Number(query.limit) : 12;
         const offset = (page - 1) * limit;
 
-        const libraryItemWhere = [
-            eq(libraryItem.isActive, true),
-            eq(libraryItem.userId, user.id),
-            type
-                ? type === 'MEDIA'
-                    ? inArray(libraryItem.type, ['AUDIO', 'VIDEO', 'IMAGE'])
-                    : eq(libraryItem.type, type)
-                : ne(libraryItem.type, 'FOLDER'),
-            ilike(libraryItem.name, `%${search}%`),
-        ];
+        const libraryItemWhere = [eq(libraryItem.isActive, true), eq(libraryItem.userId, user.id)];
         const libraryItemOrder = [desc(libraryItem.createdAt), asc(libraryItem.name)];
+
+        if (search) {
+            libraryItemWhere.push(ilike(libraryItem.name, `%${search}%`));
+        }
+
+        if (type) {
+            switch (type) {
+                case 'MEDIA':
+                    libraryItemWhere.push(inArray(libraryItem.type, ['AUDIO', 'VIDEO', 'IMAGE']));
+                    break;
+                default:
+                    libraryItemWhere.push(eq(libraryItem.type, type));
+                    break;
+            }
+        }
 
         const total = await db
             .select({ count: count() })
@@ -183,11 +189,11 @@ export class LibraryService {
         const db = this.databaseService.database;
 
         const createdData = await db.transaction(async tx => {
-            const metadata = { ...JSON.parse(body.metadata) };
+            let metadata = { ...body.metadata };
 
             if (file) {
-                const fileUrl = await this.supabaseService.uploadFile(file);
-                metadata.fileUrl = fileUrl;
+                const fileMetadata = await this.supabaseService.uploadFile(file);
+                metadata = { ...metadata, ...fileMetadata };
             }
 
             return await tx
@@ -197,7 +203,7 @@ export class LibraryService {
                     type: body.type,
                     parentId: body.parentId,
                     userId: user.id,
-                    metadata: body.metadata,
+                    metadata,
                 })
                 .returning();
         });
