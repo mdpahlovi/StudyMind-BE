@@ -1,14 +1,19 @@
+import { SupabaseService } from '@/common/services/supabase.service';
 import { User } from '@/database/schemas';
 import { CurrentUser } from '@/decorators/current-user.decorator';
 import { CreateLibraryItemDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { LibraryService } from '@/modules/library/library.service';
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 @ApiTags('Library')
 @Controller('library')
 export class LibraryController {
-    constructor(private readonly libraryService: LibraryService) {}
+    constructor(
+        private readonly libraryService: LibraryService,
+        private readonly supabaseService: SupabaseService,
+    ) {}
 
     @ApiOperation({ summary: 'Retrieve all library item' })
     @Get()
@@ -36,8 +41,9 @@ export class LibraryController {
 
     @ApiOperation({ summary: 'Create a new library item' })
     @Post()
-    async createLibraryItem(@Body() body: CreateLibraryItemDto, @CurrentUser() user: User) {
-        return this.libraryService.createLibraryItem(body, user);
+    @UseInterceptors(FileInterceptor('file'))
+    async createLibraryItem(@UploadedFile() file: Express.Multer.File, @Body() body: CreateLibraryItemDto, @CurrentUser() user: User) {
+        return this.libraryService.createLibraryItem(file, body, user);
     }
 
     @ApiOperation({ summary: 'Update a library item' })

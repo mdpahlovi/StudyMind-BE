@@ -30,4 +30,8 @@ export default () => ({
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         callbackURL: process.env.GOOGLE_CALLBACK_URL,
     },
+    supabase: {
+        url: process.env.SUPABASE_URL,
+        key: process.env.SUPABASE_ANON_KEY,
+    },
 });

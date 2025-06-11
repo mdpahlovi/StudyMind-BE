@@ -1,3 +1,4 @@
+import { SupabaseService } from '@/common/services/supabase.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
 import { libraryItem } from '@/database/schemas/library.schema';
@@ -7,7 +8,10 @@ import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, sql } from 'driz
 
 @Injectable()
 export class LibraryService {
-    constructor(private readonly databaseService: DatabaseService) {}
+    constructor(
+        private readonly databaseService: DatabaseService,
+        private readonly supabaseService: SupabaseService,
+    ) {}
 
     async getLibraryItems(query: any, user: User) {
         const db = this.databaseService.database;
@@ -175,19 +179,28 @@ export class LibraryService {
         };
     }
 
-    async createLibraryItem(body: CreateLibraryItemDto, user: User) {
+    async createLibraryItem(file: Express.Multer.File, body: CreateLibraryItemDto, user: User) {
         const db = this.databaseService.database;
 
-        const createdData = await db
-            .insert(libraryItem)
-            .values({
-                name: body.name,
-                type: body.type,
-                parentId: body.parentId,
-                userId: user.id,
-                metadata: body.metadata,
-            })
-            .returning();
+        const createdData = await db.transaction(async tx => {
+            const metadata = { ...JSON.parse(body.metadata) };
+
+            if (file) {
+                const fileUrl = await this.supabaseService.uploadFile(file);
+                metadata.fileUrl = fileUrl;
+            }
+
+            return await tx
+                .insert(libraryItem)
+                .values({
+                    name: body.name,
+                    type: body.type,
+                    parentId: body.parentId,
+                    userId: user.id,
+                    metadata: body.metadata,
+                })
+                .returning();
+        });
 
         if (!createdData[0] || !createdData[0]?.uid) {
             throw new BadRequestException('Failed to create library item');
