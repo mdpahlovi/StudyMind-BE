@@ -16,11 +16,11 @@ export const chatSessions = pgTable('chat_sessions', {
     updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-export const messageRoleEnum = pgEnum('message_role', ['USER', 'ASSISTANT']);
+export const chatMessageRoleEnum = pgEnum('message_role', ['USER', 'ASSISTANT']);
 export const chatMessages = pgTable('chat_messages', {
     id: serial('id').primaryKey(),
     uid: uuid('uid').notNull().unique().defaultRandom(),
-    role: messageRoleEnum('role').notNull(),
+    role: chatMessageRoleEnum('role').notNull(),
     chatSessionId: integer('chat_session_id')
         .notNull()
         .references(() => chatSessions.id),
@@ -28,3 +28,7 @@ export const chatMessages = pgTable('chat_messages', {
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
 });
+
+export type ChatSession = typeof chatSessions.$inferSelect;
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type ChatMessageRole = (typeof chatMessageRoleEnum.enumValues)[number];

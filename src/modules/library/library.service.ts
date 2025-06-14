@@ -72,7 +72,7 @@ export class LibraryService {
         const offset = (page - 1) * limit;
 
         const libraryItemWhere = [eq(libraryItem.isActive, true), eq(libraryItem.userId, user.id)];
-        const libraryItemOrder = [desc(libraryItem.createdAt), asc(libraryItem.name)];
+        const libraryItemOrder = [desc(libraryItem.updatedAt), asc(libraryItem.name)];
 
         if (search) {
             libraryItemWhere.push(ilike(libraryItem.name, `%${search}%`));
@@ -232,6 +232,7 @@ export class LibraryService {
                 ...(body.type ? { type: body.type } : {}),
                 ...(body.parentId ? { parentId: body.parentId } : {}),
                 ...(body.metadata ? { metadata: body.metadata } : {}),
+                updatedAt: new Date(),
             })
             .where(eq(libraryItem.uid, uid))
             .returning();
@@ -248,7 +249,7 @@ export class LibraryService {
 
         const updatedData = await db
             .update(libraryItem)
-            .set({ isActive: body.isActive, parentId: body.parentId })
+            .set({ isActive: body.isActive, parentId: body.parentId, updatedAt: new Date() })
             .where(inArray(libraryItem.uid, body.uid))
             .returning();
 
