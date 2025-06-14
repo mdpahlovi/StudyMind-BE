@@ -43,3 +43,17 @@ export class UpdateLibraryItemDto {
     @IsOptional()
     metadata: any;
 }
+
+export class updateBulkLibraryItemsDto {
+    @ApiProperty({ description: 'Library item uid', example: '123' })
+    @IsNotEmpty()
+    uid: string[];
+
+    @ApiProperty({ description: 'Library item active status', example: true })
+    @IsOptional()
+    isActive: boolean;
+
+    @ApiProperty({ description: 'Library item parent ID', example: null })
+    @IsOptional()
+    parentId: number | null;
+}

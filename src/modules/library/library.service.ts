@@ -2,7 +2,7 @@ import { SupabaseService } from '@/common/services/supabase.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
 import { libraryItem } from '@/database/schemas/library.schema';
-import { CreateLibraryItemDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
+import { CreateLibraryItemDto, updateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, sql } from 'drizzle-orm';
 
@@ -241,5 +241,21 @@ export class LibraryService {
         }
 
         return { message: 'Library item updated successfully', data: updatedData[0] };
+    }
+
+    async updateBulkLibraryItems(body: updateBulkLibraryItemsDto, user: User) {
+        const db = this.databaseService.database;
+
+        const updatedData = await db
+            .update(libraryItem)
+            .set({ isActive: body.isActive, parentId: body.parentId })
+            .where(inArray(libraryItem.uid, body.uid))
+            .returning();
+
+        if (!updatedData[0] || !updatedData[0]?.uid) {
+            throw new BadRequestException('Failed to update library item');
+        }
+
+        return { message: 'Library item updated successfully', data: updatedData };
     }
 }
