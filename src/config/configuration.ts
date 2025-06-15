@@ -34,4 +34,11 @@ export default () => ({
         url: process.env.SUPABASE_URL,
         key: process.env.SUPABASE_ANON_KEY,
     },
+    gemini: {
+        apiKey: process.env.GEMINI_API_KEY,
+    },
+    pinecone: {
+        apiKey: process.env.PINECONE_API_KEY,
+        index: process.env.PINECONE_INDEX,
+    },
 });

@@ -23,4 +23,12 @@ export class HealthController {
     checkDatabase() {
         return this.healthService.getDatabaseHealthStatus();
     }
+
+    @Public()
+    @Get('gen-ai')
+    @ApiOperation({ summary: 'Gen AI health check endpoint' })
+    @ApiResponse({ status: 200, description: 'Gen AI is healthy' })
+    checkGenAI() {
+        return this.healthService.getGenAIHealthStatus();
+    }
 }
