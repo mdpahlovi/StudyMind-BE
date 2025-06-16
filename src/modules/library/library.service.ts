@@ -119,11 +119,7 @@ export class LibraryService {
         const libraryItemsQuery = `
         WITH RECURSIVE child_item AS (
             SELECT 
-                id,
-                uid,
-                name,
-                type,
-                parent_id,
+                li.*,
                 CONCAT('/', name) AS path
             FROM 
                 library_item li
@@ -134,11 +130,7 @@ export class LibraryService {
                 ${type ? `AND li.type = '${type}'` : ''}
             UNION ALL
             SELECT 
-                li.id,
-                li.uid,
-                li.name,
-                li.type,
-                li.parent_id,
+                li.*,
                 CONCAT(ci.path, '/', li.name) AS path
             FROM 
                 library_item li
@@ -150,12 +142,7 @@ export class LibraryService {
                 ${type ? `AND li.type = '${type}'` : ''}
         )
         SELECT 
-            id,
-            uid,
-            name,
-            type,
-            parent_id AS "parentId",
-            path
+            *
         FROM 
             child_item
         ORDER BY 

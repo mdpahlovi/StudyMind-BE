@@ -1,26 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional } from 'class-validator';
+import { IsNotEmpty } from 'class-validator';
 
-export class CreateChatDto {
-    @ApiProperty()
+export class RequestQueryDto {
+    @ApiProperty({ description: 'Message', example: 'Hello! How are you?' })
     @IsNotEmpty()
-    name: string;
-
-    @ApiProperty()
-    @IsNotEmpty()
-    type: string;
-
-    @ApiProperty()
-    @IsOptional()
-    userId: number;
-}
-
-export class UpdateChatDto {
-    @ApiProperty()
-    @IsOptional()
-    name: string;
-
-    @ApiProperty()
-    @IsOptional()
-    type: string;
+    message: string;
 }

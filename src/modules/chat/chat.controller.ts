@@ -1,20 +1,14 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { CreateChatDto } from './chat.dto';
-import { ChatService } from './chat.service';
-import { CurrentUser } from '@/decorators/current-user.decorator';
 import { User } from '@/database/schemas';
+import { CurrentUser } from '@/decorators/current-user.decorator';
+import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { RequestQueryDto } from './chat.dto';
+import { ChatService } from './chat.service';
 
 @ApiTags('Chat')
 @Controller('chat')
 export class ChatController {
     constructor(private readonly chatService: ChatService) {}
-
-    @ApiOperation({ summary: 'Create a new chat' })
-    @Post()
-    async createChat(@Body() createChatDto: CreateChatDto) {
-        return this.chatService.createChat(createChatDto);
-    }
 
     @ApiOperation({ summary: 'Get all chat sessions' })
     @Get()
@@ -26,5 +20,11 @@ export class ChatController {
     @Get(':uid')
     async getOneChat(@Param('uid') uid: string, @CurrentUser() user: User) {
         return this.chatService.getOneChat(uid, user);
+    }
+
+    @ApiOperation({ summary: 'Request a query to a chat session' })
+    @Patch(':uid')
+    async requestQuery(@Param('uid') uid: string, @Body() body: RequestQueryDto, @CurrentUser() user: User) {
+        return this.chatService.requestQuery(uid, body, user);
     }
 }

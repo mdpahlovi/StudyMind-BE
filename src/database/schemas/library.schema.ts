@@ -8,6 +8,7 @@ export const libraryItem = pgTable('library_item', {
     id: serial('id').primaryKey(),
     uid: uuid('uid').notNull().unique().defaultRandom(),
     isActive: boolean('is_active').default(true),
+    isEmbedded: boolean('is_embedded').default(false),
     name: text('name').notNull(),
     type: libraryItemTypeEnum('type').notNull(),
     parentId: integer('parent_id').references(() => libraryItem.id),

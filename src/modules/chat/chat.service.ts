@@ -1,19 +1,19 @@
+import { GenAIService } from '@/common/services/gen-ai.service';
 import { SupabaseService } from '@/common/services/supabase.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
 import { chatMessages, chatSessions } from '@/database/schemas/chat.schema';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { and, count, desc, eq, ilike } from 'drizzle-orm';
-import { CreateChatDto } from './chat.dto';
+import { RequestQueryDto } from './chat.dto';
 
 @Injectable()
 export class ChatService {
     constructor(
         private readonly databaseService: DatabaseService,
         private readonly supabaseService: SupabaseService,
+        private readonly genAIService: GenAIService,
     ) {}
-
-    async createChat(createChatDto: CreateChatDto) {}
 
     async getChats(query: any, user: User) {
         const db = this.databaseService.database;
@@ -73,5 +73,31 @@ export class ChatService {
                 messages: messages || [],
             },
         };
+    }
+
+    async requestQuery(uid: string, body: RequestQueryDto, user: User) {
+        const db = this.databaseService.database;
+
+        let chatSession = await db
+            .select()
+            .from(chatSessions)
+            .where(and(eq(chatSessions.uid, uid), eq(chatSessions.userId, user.id)))
+            .orderBy(desc(chatSessions.updatedAt));
+
+        if (!chatSession?.length) {
+            chatSession = await db
+                .insert(chatSessions)
+                .values({
+                    userId: user.id,
+                    title: 'Unnamed Chat',
+                    lastMessage: body.message,
+                    lastMessageAt: new Date(),
+                })
+                .returning();
+
+            await db.insert(chatMessages).values({ role: 'USER', chatSessionId: chatSession[0].id, message: body.message });
+        }
+
+        console.log('chatService', chatSession);
     }
 }
