@@ -22,7 +22,16 @@ export class GenAIService {
         });
     }
 
-    async generateTitle(message: string) {
+    async generateResponse(message: string) {
+        try {
+            const response = await this.genAI.invoke([new HumanMessage(message)]);
+            return response.text;
+        } catch (error) {
+            throw new HttpException('Failed to generate response', HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    async generateSession(message: string) {
         try {
             const outputParser = StructuredOutputParser.fromNamesAndDescriptions({
                 title: 'A concise, specific title (3-8 words) that captures the main topic or request',

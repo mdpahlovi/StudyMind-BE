@@ -4,7 +4,7 @@ import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
 import { chatMessages, chatSessions } from '@/database/schemas/chat.schema';
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { and, count, desc, eq, ilike } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike } from 'drizzle-orm';
 import { RequestQueryDto } from './chat.dto';
 
 @Injectable()
@@ -64,7 +64,7 @@ export class ChatService {
             .select()
             .from(chatMessages)
             .where(eq(chatMessages.chatSessionId, session[0].id))
-            .orderBy(desc(chatMessages.createdAt));
+            .orderBy(asc(chatMessages.createdAt));
 
         return {
             message: 'Chat session fetched successfully',
@@ -88,6 +88,7 @@ export class ChatService {
             chatSession = await db
                 .insert(chatSessions)
                 .values({
+                    uid: uid,
                     userId: user.id,
                     title: 'Unnamed Chat',
                     lastMessage: body.message,
@@ -95,9 +96,34 @@ export class ChatService {
                 })
                 .returning();
 
-            await db.insert(chatMessages).values({ role: 'USER', chatSessionId: chatSession[0].id, message: body.message });
+            await db.insert(chatMessages).values({ ...body, chatSessionId: chatSession[0].id });
+        } else {
+            chatSession = await db
+                .update(chatSessions)
+                .set({
+                    lastMessage: body.message,
+                    lastMessageAt: new Date(),
+                })
+                .where(eq(chatSessions.uid, uid))
+                .returning();
         }
 
-        console.log('chatService', chatSession);
+        const response = await this.genAIService.generateResponse(body.message);
+        const genAIMessage = await db
+            .insert(chatMessages)
+            .values({
+                role: 'ASSISTANT',
+                chatSessionId: chatSession[0].id,
+                message: response,
+            })
+            .returning();
+
+        return {
+            message: 'Chat session requested successfully',
+            data: {
+                session: chatSession[0],
+                message: genAIMessage[0],
+            },
+        };
     }
 }

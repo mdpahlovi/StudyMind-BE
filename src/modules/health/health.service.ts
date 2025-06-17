@@ -44,7 +44,7 @@ export class HealthService {
     }
 
     async getGenAIHealthStatus() {
-        const response = await this.genAIService.generateText('Hello, how are you?');
+        const response = await this.genAIService.generateResponse('Hello, how are you?');
 
         return {
             message: 'Gen AI service is healthy',
