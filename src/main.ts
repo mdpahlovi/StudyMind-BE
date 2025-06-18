@@ -1,5 +1,5 @@
 import { AppModule } from '@/app.module';
-import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { ConsoleLogger, ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -9,7 +9,13 @@ import { ErrorInterceptor } from './common/interceptors/error.interceptor';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
 async function bootstrap() {
-    const app = await NestFactory.create(AppModule);
+    const app = await NestFactory.create(AppModule, {
+        logger: new ConsoleLogger({
+            logLevels: ['log', 'error', 'warn', 'debug', 'verbose'],
+            prefix: 'StudyMind',
+            timestamp: true,
+        }),
+    });
     const configService = app.get(ConfigService);
 
     // Security

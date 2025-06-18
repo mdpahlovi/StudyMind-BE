@@ -32,6 +32,11 @@ export class ErrorInterceptor implements NestInterceptor {
                     path: request.url,
                 };
 
+                console.log(
+                    `[StudyMind] - ${moment().format('DD/MM/YYYY, hh:mm A')}     ${statusCode} ${context.switchToHttp().getRequest().method} {${context.switchToHttp().getRequest().url}}`,
+                );
+                console.error(err);
+
                 return throwError(() => new HttpException(errorResponse, statusCode));
             }),
         );

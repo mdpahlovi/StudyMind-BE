@@ -7,36 +7,6 @@ import { ConfigService } from '@nestjs/config';
 import { StructuredOutputParser } from 'langchain/output_parsers';
 import { z } from 'zod';
 
-const ActionDecisionSchema = z.object({
-    action: z.enum(['CHAT', 'READ', 'CREATE']),
-    intent: z.string(),
-    confidence: z.number().min(0).max(1),
-    references: z
-        .array(
-            z.object({
-                uid: z.string(),
-                name: z.string(),
-                type: z.enum(['FOLDER', 'NOTE', 'DOCUMENT', 'FLASHCARD', 'AUDIO', 'VIDEO', 'IMAGE']),
-            }),
-        )
-        .optional(),
-});
-
-const ContentGenerationSchema = z.object({
-    name: z.string(),
-    type: z.enum(['FOLDER', 'NOTE', 'DOCUMENT', 'FLASHCARD', 'AUDIO', 'VIDEO', 'IMAGE']),
-    content: z.string(),
-    metadata: z
-        .object({
-            tags: z.array(z.string()).optional(),
-            difficulty: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED']).optional(),
-            subject: z.string().optional(),
-            estimatedReadTime: z.number().optional(),
-            contextual: z.boolean().optional(), // Flag to indicate if content is based on chat context
-        })
-        .optional(),
-});
-
 @Injectable()
 export class GenAIService {
     private genAI: ChatGoogleGenerativeAI;
@@ -149,33 +119,41 @@ export class GenAIService {
 
     async generateInitialDecision(chatHistory: ChatMessage[]) {
         try {
+            const initialDecisionSchema = z.object({
+                action: z.enum(['CHAT', 'READ', 'CREATE']),
+                intent: z.string(),
+                confidence: z.number().min(0).max(1),
+                references: z.array(z.object({ uid: z.string(), name: z.string(), type: z.string() })).optional(),
+            });
+
             const currentMessage = chatHistory.pop().message;
-            const outputParser = StructuredOutputParser.fromZodSchema(ActionDecisionSchema);
+            const outputParser = StructuredOutputParser.fromZodSchema(initialDecisionSchema);
             const contextSummary = await this.generateSummary(chatHistory);
 
             const promptTemplate = new PromptTemplate({
-                template: `You are StudyMind AI, an educational assistant. Based on the user's message and the context of the conversation, determine the appropriate action to take.
+                template: `You are StudyMind AI, an educational assistant. Analyze the user's message to determine the appropriate action.
 
                 CONVERSATION CONTEXT: {contextSummary}
-
-                DECISION CRITERIA:
-                1. CHAT: General questions, explanations, discussions, follow-ups on previous topics
-                2. READ: User mentions existing content (@mention) and wants to discuss on it
-                3. CREATE: User wants to create/generate new study materials
-              
-
-                CONTENT CREATION INDICATORS:
-                - Explicit: "create", "generate", "make", "build", "add", "new"
-                - Contextual: "can you make that into...", "turn this into...", "based on what we discussed..."
-                - Follow-up: References to previous conversation topics for content creation
-
                 CURRENT MESSAGE: {message}
 
-                Consider:
-                - Conversation flow and context
-                - References to previous topics
-                - Implicit content creation requests
-                - Educational progression and learning goals
+                ACTION DEFINITIONS:
+                - READ: User references existing content (@mention) for analysis, discussion, or questions about it
+                - CREATE: User wants to generate NEW study materials, either standalone OR from existing content (@mention)
+                - CHAT: General discussions, explanations, Q&A without content creation or analysis
+
+                @MENTION FORMAT: @mention {uid: content uid, name: content name, type: content type}
+
+                DECISION LOGIC:
+                1. If @mention + creation keywords (create, make, generate, turn into, convert, build, add) → CREATE
+                2. If @mention + analysis/discussion keywords (overview, explain, discuss, understand, help with) → READ  
+                3. If creation keywords without @mention → CREATE
+                4. Otherwise → CHAT
+
+                EXAMPLES:
+                - "Can you give me an overview of @mention {uid: uuidv4, name: History Chapter 3, type: 'NOTE'}" → READ
+                - "Can you make a flashcard from @mention {uid: uuidv4, name: History Chapter 3, type: 'NOTE'}" → CREATE
+                - "Create a new folder for Math" → CREATE
+                - "What is photosynthesis?" → CHAT
 
                 {format_instructions}`,
                 inputVariables: ['message', 'contextSummary'],
@@ -197,10 +175,63 @@ export class GenAIService {
         }
     }
 
-    async generateContentCreation(chatHistory: ChatMessage[] = [], parentId?: string, mentionedContent?: any[]) {
+    async generateContentCreation(chatHistory: ChatMessage[]) {
         try {
+            const ContentCreationSchema = z.object({
+                name: z.string(),
+                type: z.enum(['FOLDER', 'NOTE', 'DOCUMENT', 'FLASHCARD', 'AUDIO', 'VIDEO', 'IMAGE']),
+                metadata: z
+                    .object({
+                        color: z.string().optional().describe('Color hex code of FOLDER. Only for FOLDER type. Otherwise undefined'),
+                        icon: z
+                            .enum([
+                                'folder',
+                                'book',
+                                'physics',
+                                'chemistry',
+                                'math',
+                                'history',
+                                'artificialIntelligence',
+                                'statistics',
+                                'botany',
+                                'factory',
+                            ])
+                            .optional()
+                            .describe('Icon name for FOLDER. Only for FOLDER type. Otherwise undefined'),
+                        description: z
+                            .string()
+                            .optional()
+                            .describe('Description for all content type except FOLDER type. If FOLDER then undefined'),
+                        content: z
+                            .string()
+                            .optional()
+                            .describe(
+                                'If content type is NOTE then should be an markdown string of the explanation. If content type is FLASHCARD then should be an array of flashcards [{question: string, answer: string}]. Otherwise undefined',
+                            ),
+                        fileType: z
+                            .string()
+                            .describe('If DOCUMENT then pdf. If AUDIO then mp3. If VIDEO then mp4. If IMAGE then png. Otherwise undefined'),
+                        duration: z.number().describe('If AUDIO or VIDEO then duration in seconds. Otherwise undefined'),
+                        resolution: z.string().describe('If IMAGE then width x height in pixels. Otherwise undefined'),
+                    })
+                    .optional(),
+                prompt: z
+                    .string()
+                    .optional()
+                    .describe(
+                        'If content type is DOCUMENT then should be a markdown string. So that later i can convert it to pdf. If content type is AUDIO then should be a prompt for text to convert in speech. If content type is VIDEO then should be a prompt for video script. If content type is IMAGE then should be a prompt for image generation. Otherwise undefined',
+                    ),
+                parent: z
+                    .string()
+                    .optional()
+                    .describe(
+                        'If user wants to generate content under a specific parent and that parent is mentioned @mention. Give uid of that parent. Otherwise undefined',
+                    ),
+                confidence: z.number().min(0).max(1),
+            });
+
             const currentMessage = chatHistory.pop().message;
-            const outputParser = StructuredOutputParser.fromZodSchema(ContentGenerationSchema);
+            const outputParser = StructuredOutputParser.fromZodSchema(ContentCreationSchema);
             const contextSummary = await this.generateSummary(chatHistory);
 
             const promptTemplate = new PromptTemplate({
@@ -218,8 +249,6 @@ export class GenAIService {
                 - IMAGE: Image descriptions/prompts for generation
 
                 CURRENT REQUEST: {message}
-                PARENT CONTEXT: {parentId}
-                SOURCE CONTENT: {mentionedContent}
 
                 GUIDELINES:
                 1. Use conversation context to inform content creation
@@ -230,7 +259,7 @@ export class GenAIService {
                 6. Create meaningful names that reflect the context
 
                 {format_instructions}`,
-                inputVariables: ['message', 'parentId', 'mentionedContent', 'contextSummary'],
+                inputVariables: ['message', 'contextSummary'],
                 partialVariables: { format_instructions: outputParser.getFormatInstructions() },
             });
 
@@ -238,8 +267,6 @@ export class GenAIService {
                 new HumanMessage(
                     await promptTemplate.format({
                         message: currentMessage,
-                        parentId: parentId || 'root',
-                        mentionedContent: JSON.stringify(mentionedContent || []),
                         contextSummary,
                     }),
                 ),
@@ -251,7 +278,7 @@ export class GenAIService {
         }
     }
 
-    async generateContentAnalysis(chatHistory: ChatMessage[] = [], mentionedContent: any[], contentData: string[]) {
+    async generateContentAnalysis(chatHistory: ChatMessage[]) {
         try {
             const currentMessage = chatHistory.pop().message;
             const contextSummary = await this.generateSummary(chatHistory);
@@ -274,15 +301,13 @@ export class GenAIService {
                 6. Be specific and cite sources when relevant
 
                 Provide a comprehensive, contextual educational response.`,
-                inputVariables: ['message', 'mentionedContent', 'contentData', 'contextSummary'],
+                inputVariables: ['message', 'contextSummary'],
             });
 
             const response = await this.genAI.invoke([
                 new HumanMessage(
                     await promptTemplate.format({
                         message: currentMessage,
-                        mentionedContent: JSON.stringify(mentionedContent),
-                        contentData: JSON.stringify(contentData),
                         contextSummary,
                     }),
                 ),
