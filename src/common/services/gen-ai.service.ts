@@ -1,3 +1,4 @@
+import { LibraryItem } from '@/database/schemas';
 import { ChatMessage } from '@/database/schemas/chat.schema';
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { PromptTemplate } from '@langchain/core/prompts';
@@ -126,9 +127,9 @@ export class GenAIService {
                 references: z.array(z.object({ uid: z.string(), name: z.string(), type: z.string() })).optional(),
             });
 
-            const currentMessage = chatHistory.pop().message;
+            const currentMessage = chatHistory[chatHistory.length - 1].message;
             const outputParser = StructuredOutputParser.fromZodSchema(initialDecisionSchema);
-            const contextSummary = await this.generateSummary(chatHistory);
+            const contextSummary = await this.generateSummary(chatHistory.slice(0, -1));
 
             const promptTemplate = new PromptTemplate({
                 template: `You are StudyMind AI, an educational assistant. Analyze the user's message to determine the appropriate action.
@@ -141,7 +142,7 @@ export class GenAIService {
                 - CREATE: User wants to generate NEW study materials, either standalone OR from existing content (@mention)
                 - CHAT: General discussions, explanations, Q&A without content creation or analysis
 
-                @MENTION FORMAT: @mention {uid: content uid, name: content name, type: content type}
+                @MENTION FORMAT: @mention {{uid: content uid, name: content name, type: content type}} 
 
                 DECISION LOGIC:
                 1. If @mention + creation keywords (create, make, generate, turn into, convert, build, add) → CREATE
@@ -150,8 +151,8 @@ export class GenAIService {
                 4. Otherwise → CHAT
 
                 EXAMPLES:
-                - "Can you give me an overview of @mention {uid: uuidv4, name: History Chapter 3, type: 'NOTE'}" → READ
-                - "Can you make a flashcard from @mention {uid: uuidv4, name: History Chapter 3, type: 'NOTE'}" → CREATE
+                - "Can you give me an overview of @mention {{uid: uuidv4, name: History Chapter 3, type: 'NOTE'}}" → READ
+                - "Can you make a flashcard from @mention {{uid: uuidv4, name: History Chapter 3, type: 'NOTE'}}" → CREATE
                 - "Create a new folder for Math" → CREATE
                 - "What is photosynthesis?" → CHAT
 
@@ -175,91 +176,59 @@ export class GenAIService {
         }
     }
 
-    async generateContentCreation(chatHistory: ChatMessage[]) {
+    async generateContentCreation(chatHistory: ChatMessage[], references: LibraryItem[]) {
         try {
             const ContentCreationSchema = z.object({
                 name: z.string(),
                 type: z.enum(['FOLDER', 'NOTE', 'DOCUMENT', 'FLASHCARD', 'AUDIO', 'VIDEO', 'IMAGE']),
-                metadata: z
-                    .object({
-                        color: z.string().optional().describe('Color hex code of FOLDER. Only for FOLDER type. Otherwise undefined'),
-                        icon: z
-                            .enum([
-                                'folder',
-                                'book',
-                                'physics',
-                                'chemistry',
-                                'math',
-                                'history',
-                                'artificialIntelligence',
-                                'statistics',
-                                'botany',
-                                'factory',
-                            ])
-                            .optional()
-                            .describe('Icon name for FOLDER. Only for FOLDER type. Otherwise undefined'),
-                        description: z
-                            .string()
-                            .optional()
-                            .describe('Description for all content type except FOLDER type. If FOLDER then undefined'),
-                        content: z
-                            .string()
-                            .optional()
-                            .describe(
-                                'If content type is NOTE then should be an markdown string of the explanation. If content type is FLASHCARD then should be an array of flashcards [{question: string, answer: string}]. Otherwise undefined',
-                            ),
-                        fileType: z
-                            .string()
-                            .describe('If DOCUMENT then pdf. If AUDIO then mp3. If VIDEO then mp4. If IMAGE then png. Otherwise undefined'),
-                        duration: z.number().describe('If AUDIO or VIDEO then duration in seconds. Otherwise undefined'),
-                        resolution: z.string().describe('If IMAGE then width x height in pixels. Otherwise undefined'),
-                    })
-                    .optional(),
-                prompt: z
-                    .string()
-                    .optional()
-                    .describe(
-                        'If content type is DOCUMENT then should be a markdown string. So that later i can convert it to pdf. If content type is AUDIO then should be a prompt for text to convert in speech. If content type is VIDEO then should be a prompt for video script. If content type is IMAGE then should be a prompt for image generation. Otherwise undefined',
-                    ),
-                parent: z
-                    .string()
-                    .optional()
-                    .describe(
-                        'If user wants to generate content under a specific parent and that parent is mentioned @mention. Give uid of that parent. Otherwise undefined',
-                    ),
+                parentId: z.number().nullable(),
+                prompt: z.string().optional(),
                 confidence: z.number().min(0).max(1),
             });
 
-            const currentMessage = chatHistory.pop().message;
+            const currentMessage = chatHistory[chatHistory.length - 1].message;
             const outputParser = StructuredOutputParser.fromZodSchema(ContentCreationSchema);
-            const contextSummary = await this.generateSummary(chatHistory);
+            const contextSummary = await this.generateSummary(chatHistory.slice(0, -1));
 
             const promptTemplate = new PromptTemplate({
-                template: `You are StudyMind AI, an educational assistant. Generate appropriate study content based on the user's request and our conversation context.
+                template: `You are StudyMind AI, an educational assistant. Your task is to generate appropriate study content based on the user's request, adhering strictly to the provided schema and rules.
 
                 CONVERSATION CONTEXT: {contextSummary}
-
-                CONTENT TYPES:
-                - FOLDER: Organizational structure for grouping content
-                - NOTE: Short study notes, summaries, key points
-                - DOCUMENT: Comprehensive study materials, detailed explanations
-                - FLASHCARD: Question-answer pairs for memorization
-                - AUDIO: Audio-based content descriptions (for TTS)
-                - VIDEO: Video content descriptions/scripts
-                - IMAGE: Image descriptions/prompts for generation
-
                 CURRENT REQUEST: {message}
 
-                GUIDELINES:
-                1. Use conversation context to inform content creation
-                2. Reference previous topics and discussions when relevant
-                3. Build upon concepts already covered
-                4. Generate educational, contextually appropriate content
-                5. Ensure content aligns with the learning progression
-                6. Create meaningful names that reflect the context
+                REFERENCED CONTENT:
+                When user mentions @mention {{uid: uuidv4, name: History Chapter 3, type: 'NOTE'}}, the system provides corresponding content data as references array:
+                {references}
+
+                NAME RULES:
+                - Use an educational and professional name for the content.
+                - Names should be concise and descriptive.
+
+                TYPE RULES:
+                - Use the most appropriate type for the content (from the allowed enum, e.g., 'NOTE'), based on the user's request.
+
+                PARENT ID RULES:
+                1. If the user explicitly requests creation *inside* a specific folder (e.g., "create a note in @mention {{uid: uuidv4, name: History, type: 'FOLDER'}}"), use that folder's ID as parentId.
+                2. If the user mentions existing content (e.g., "summarize @mention {{uid: uuidv4, name: History Chapter 3, type: 'NOTE'}} into a new note"), use the parentId of the mentioned content.
+                3. If no explicit folder mention or a general request (e.g., "create a new flashcard set"), set parentId to null (root level).
+
+                CONTENT TYPE SPECIFIC RULES:
+                - FOLDER: Requires metadata.color (hex code, e.g., "#A8C686") and metadata.icon (from allowed enum, e.g., "book").
+                - NOTE: Include a brief metadata.description. The markdown content should be in metadata.content, structured with sections and sub-sections and formatted with headers, lists, code blocks, tables. Maximum of 200 words.
+                - FLASHCARD: Include a brief metadata.description. The flashcards should be a JSON array of {{"question":"", "answer":""}} objects in metadata.content. Maximum of 10 cards.
+                - DOCUMENT: Include a brief metadata.description. Set metadata.fileType to "pdf".
+                - AUDIO: Include a brief metadata.description. Set metadata.fileType to "mp3". Estimate metadata.duration in seconds.
+                - VIDEO: Include a brief metadata.description. Set metadata.fileType to "mp4". Estimate metadata.duration in seconds.
+                - IMAGE: Include a brief metadata.description. Set metadata.fileType to "png". Provide metadata.resolution in "widthxheight" format (e.g., "1920x1080").
+
+                PROMPT GENERATION RULES (for downstream services):
+                - For DOCUMENT (MARKDOWN→PDF conversion): Use the markdown content in the 'prompt' field. The markdown content should be structured with sections and sub-sections and formatted with headers, lists, code blocks, tables. Maximum of 200 words.
+                - For AUDIO (TEXT→SPEECH conversion): Use the textual content (e.g., a short script) in the 'prompt' field. Maximum of 100 words.
+                - For VIDEO (SCRIPT→VIDEO conversion): Use the video script in the 'prompt' field. Maximum of 100 words.
+                - For IMAGE generation: Use a concise image description in the 'prompt' field. Maximum of 20 words.
 
                 {format_instructions}`,
-                inputVariables: ['message', 'contextSummary'],
+                inputVariables: ['message', 'references', 'contextSummary'],
                 partialVariables: { format_instructions: outputParser.getFormatInstructions() },
             });
 
@@ -267,6 +236,7 @@ export class GenAIService {
                 new HumanMessage(
                     await promptTemplate.format({
                         message: currentMessage,
+                        references: JSON.stringify(references),
                         contextSummary,
                     }),
                 ),

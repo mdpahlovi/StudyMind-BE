@@ -78,100 +78,102 @@ export class ChatService {
     async requestQuery(uid: string, body: RequestQueryDto, user: User) {
         const db = this.databaseService.database;
 
-        let chatSession = await db
-            .update(chatSessions)
-            .set({
-                lastMessage: body.message,
-                lastMessageAt: new Date(),
-            })
-            .where(eq(chatSessions.uid, uid))
-            .returning();
-        let chatMessage = [];
-
-        if (chatSession?.length) {
-            await db.insert(chatMessages).values({
-                ...body,
-                chatSessionId: chatSession[0].id,
-            });
-
-            chatMessage = await db
-                .select()
-                .from(chatMessages)
-                .where(eq(chatMessages.chatSessionId, chatSession[0].id))
-                .orderBy(asc(chatMessages.createdAt));
-        } else {
-            const initSession = await this.genAIService.generateSession(body.message);
-
-            chatSession = await db
-                .insert(chatSessions)
-                .values({
-                    uid: uid,
-                    userId: user.id,
-                    title: initSession?.title || 'Unnamed Chat',
-                    description: initSession?.description || '',
+        return await db.transaction(async tx => {
+            let chatSession = await tx
+                .update(chatSessions)
+                .set({
                     lastMessage: body.message,
                     lastMessageAt: new Date(),
                 })
+                .where(eq(chatSessions.uid, uid))
                 .returning();
+            let chatMessage = [];
 
-            chatMessage = await db
-                .insert(chatMessages)
-                .values({ ...body, chatSessionId: chatSession[0].id })
-                .returning();
-        }
-
-        if (!chatSession?.length || !chatMessage?.length) {
-            throw new NotFoundException('Chat session or message not found');
-        }
-
-        const initialDecision = await this.genAIService.generateInitialDecision(chatMessage);
-
-        let response = '';
-        if (initialDecision?.action) {
-            if (initialDecision.action === 'CHAT') {
-                response = await this.genAIService.generateContextualResponse(chatMessage);
-            }
-            if (initialDecision.action === 'READ') {
-                // response = await this.genAIService.generateContentAnalysis(chatMessage);
-            }
-            if (initialDecision.action === 'CREATE') {
-                let references = [];
-
-                if (initialDecision.references) {
-                    references = await db
-                        .select()
-                        .from(libraryItem)
-                        .where(
-                            inArray(
-                                libraryItem.uid,
-                                initialDecision.references.map(ref => ref.uid),
-                            ),
-                        );
-                }
-
-                console.log('references', references);
-            }
-        }
-
-        if (response) {
-            const message = await db
-                .insert(chatMessages)
-                .values({
-                    role: 'ASSISTANT',
+            if (chatSession?.length) {
+                await tx.insert(chatMessages).values({
+                    ...body,
                     chatSessionId: chatSession[0].id,
-                    message: response,
-                })
-                .returning();
+                });
 
-            return {
-                message: 'Chat session requested successfully',
-                data: {
-                    session: chatSession[0],
-                    message: message[0],
-                },
-            };
-        } else {
-            throw new BadRequestException('Failed to generate response. Please try again later.');
-        }
+                chatMessage = await tx
+                    .select()
+                    .from(chatMessages)
+                    .where(eq(chatMessages.chatSessionId, chatSession[0].id))
+                    .orderBy(asc(chatMessages.createdAt));
+            } else {
+                const initSession = await this.genAIService.generateSession(body.message);
+
+                chatSession = await tx
+                    .insert(chatSessions)
+                    .values({
+                        uid: uid,
+                        userId: user.id,
+                        title: initSession?.title || 'Unnamed Chat',
+                        description: initSession?.description || '',
+                        lastMessage: body.message,
+                        lastMessageAt: new Date(),
+                    })
+                    .returning();
+
+                chatMessage = await tx
+                    .insert(chatMessages)
+                    .values({ ...body, chatSessionId: chatSession[0].id })
+                    .returning();
+            }
+
+            if (!chatSession?.length || !chatMessage?.length) {
+                throw new NotFoundException('Chat session or message not found');
+            }
+
+            const initialDecision = await this.genAIService.generateInitialDecision(chatMessage);
+
+            let response = '';
+            if (initialDecision?.action) {
+                if (initialDecision.action === 'CHAT') {
+                    response = await this.genAIService.generateContextualResponse(chatMessage);
+                }
+                if (initialDecision.action === 'READ') {
+                    // response = await this.genAIService.generateContentAnalysis(chatMessage);
+                }
+                if (initialDecision.action === 'CREATE') {
+                    let references = [];
+
+                    if (initialDecision?.references?.length) {
+                        references = await tx
+                            .select()
+                            .from(libraryItem)
+                            .where(
+                                inArray(
+                                    libraryItem.uid,
+                                    initialDecision.references.map(ref => ref.uid),
+                                ),
+                            );
+                    }
+
+                    const createResponse = await this.genAIService.generateContentCreation(chatMessage, references);
+                }
+            }
+
+            if (response) {
+                const message = await tx
+                    .insert(chatMessages)
+                    .values({
+                        role: 'ASSISTANT',
+                        chatSessionId: chatSession[0].id,
+                        message: response,
+                    })
+                    .returning();
+
+                return {
+                    message: 'Chat session requested successfully',
+                    data: {
+                        session: chatSession[0],
+                        message: message[0],
+                    },
+                };
+            } else {
+                throw new BadRequestException('Failed to generate response. Please try again later.');
+            }
+        });
     }
 }
