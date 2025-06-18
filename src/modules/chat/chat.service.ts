@@ -79,42 +79,57 @@ export class ChatService {
         const db = this.databaseService.database;
 
         let chatSession = await db
-            .select()
-            .from(chatSessions)
-            .where(and(eq(chatSessions.uid, uid), eq(chatSessions.userId, user.id)))
-            .orderBy(desc(chatSessions.updatedAt));
+            .update(chatSessions)
+            .set({
+                lastMessage: body.message,
+                lastMessageAt: new Date(),
+            })
+            .where(eq(chatSessions.uid, uid))
+            .returning();
+        let chatMessage = [];
 
-        if (!chatSession?.length) {
+        if (chatSession?.length) {
+            await db.insert(chatMessages).values({
+                ...body,
+                chatSessionId: chatSession[0].id,
+            });
+
+            chatMessage = await db
+                .select()
+                .from(chatMessages)
+                .where(eq(chatMessages.chatSessionId, chatSession[0].id))
+                .orderBy(asc(chatMessages.createdAt));
+        } else {
+            const initSession = await this.genAIService.generateSession(body.message);
+
             chatSession = await db
                 .insert(chatSessions)
                 .values({
                     uid: uid,
                     userId: user.id,
-                    title: 'Unnamed Chat',
+                    title: initSession?.title || 'Unnamed Chat',
+                    description: initSession?.description || '',
                     lastMessage: body.message,
                     lastMessageAt: new Date(),
                 })
                 .returning();
 
-            await db.insert(chatMessages).values({ ...body, chatSessionId: chatSession[0].id });
-        } else {
-            chatSession = await db
-                .update(chatSessions)
-                .set({
-                    lastMessage: body.message,
-                    lastMessageAt: new Date(),
-                })
-                .where(eq(chatSessions.uid, uid))
+            chatMessage = await db
+                .insert(chatMessages)
+                .values({ ...body, chatSessionId: chatSession[0].id })
                 .returning();
         }
 
-        const response = await this.genAIService.generateResponse(body.message);
-        const genAIMessage = await db
+        if (!chatSession?.length || !chatMessage?.length) {
+            throw new NotFoundException('Chat session or message not found');
+        }
+
+        const message = await db
             .insert(chatMessages)
             .values({
                 role: 'ASSISTANT',
                 chatSessionId: chatSession[0].id,
-                message: response,
+                message: await this.genAIService.generateContextualResponse(chatMessage),
             })
             .returning();
 
@@ -122,7 +137,7 @@ export class ChatService {
             message: 'Chat session requested successfully',
             data: {
                 session: chatSession[0],
-                message: genAIMessage[0],
+                message: message[0],
             },
         };
     }
