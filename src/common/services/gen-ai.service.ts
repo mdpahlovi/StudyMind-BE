@@ -1,3 +1,4 @@
+import { FOLDER_ICONS } from '@/constraints';
 import { LibraryItem } from '@/database/schemas';
 import { ChatMessage } from '@/database/schemas/chat.schema';
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
@@ -5,7 +6,7 @@ import { PromptTemplate } from '@langchain/core/prompts';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { StructuredOutputParser } from 'langchain/output_parsers';
+import { OutputFixingParser, StructuredOutputParser } from 'langchain/output_parsers';
 import { z } from 'zod';
 
 @Injectable()
@@ -63,10 +64,12 @@ export class GenAIService {
 
     async generateSession(message: string) {
         try {
-            const outputParser = StructuredOutputParser.fromNamesAndDescriptions({
-                title: 'A concise, specific title (3-8 words) that captures the main topic or request',
-                description: "A brief description (10-25 words) summarizing the user's intent and context",
+            const SessionSchema = z.object({
+                title: z.string().optional(),
+                description: z.string().optional(),
             });
+
+            const outputParser = OutputFixingParser.fromLLM(this.genAI, StructuredOutputParser.fromZodSchema(SessionSchema));
 
             const promptTemplate = new PromptTemplate({
                 template: `You are StudyMind AI, an educational assistant. Based on the user query, generate an appropriate title and description for this chat session.
@@ -128,7 +131,7 @@ export class GenAIService {
             });
 
             const currentMessage = chatHistory[chatHistory.length - 1].message;
-            const outputParser = StructuredOutputParser.fromZodSchema(initialDecisionSchema);
+            const outputParser = OutputFixingParser.fromLLM(this.genAI, StructuredOutputParser.fromZodSchema(initialDecisionSchema));
             const contextSummary = await this.generateSummary(chatHistory.slice(0, -1));
 
             const promptTemplate = new PromptTemplate({
@@ -138,21 +141,21 @@ export class GenAIService {
                 CURRENT MESSAGE: {message}
 
                 ACTION DEFINITIONS:
-                - READ: User references existing content (@mention) for analysis, discussion, or questions about it
-                - CREATE: User wants to generate NEW study materials, either standalone OR from existing content (@mention)
+                - READ: User references existing content (@mention {{...}}) for analysis, discussion, or questions about it
+                - CREATE: User wants to generate NEW study materials, either standalone OR from existing content (@mention {{...}})
                 - CHAT: General discussions, explanations, Q&A without content creation or analysis
 
                 @MENTION FORMAT: @mention {{uid: content uid, name: content name, type: content type}} 
 
                 DECISION LOGIC:
-                1. If @mention + creation keywords (create, make, generate, turn into, convert, build, add) → CREATE
-                2. If @mention + analysis/discussion keywords (overview, explain, discuss, understand, help with) → READ  
+                1. If @mention {{...}} + creation keywords (create, make, generate, turn into, convert, build, add) → CREATE
+                2. If @mention {{...}} + analysis/discussion keywords (overview, explain, discuss, understand, help with) → READ  
                 3. If creation keywords without @mention → CREATE
                 4. Otherwise → CHAT
 
                 EXAMPLES:
-                - "Can you give me an overview of @mention {{uid: uuidv4, name: History Chapter 3, type: 'NOTE'}}" → READ
-                - "Can you make a flashcard from @mention {{uid: uuidv4, name: History Chapter 3, type: 'NOTE'}}" → CREATE
+                - "Can you give me an overview of @mention {{...}}" → READ
+                - "Can you make a note from @mention {{...}}" → CREATE
                 - "Create a new folder for Math" → CREATE
                 - "What is photosynthesis?" → CHAT
 
@@ -182,12 +185,24 @@ export class GenAIService {
                 name: z.string(),
                 type: z.enum(['FOLDER', 'NOTE', 'DOCUMENT', 'FLASHCARD', 'AUDIO', 'VIDEO', 'IMAGE']),
                 parentId: z.number().nullable(),
+                metadata: z
+                    .object({
+                        description: z.string().optional(),
+                        color: z.string().optional(),
+                        icon: z.enum(FOLDER_ICONS).optional(),
+                        notes: z.string().optional(),
+                        cards: z.array(z.object({ question: z.string(), answer: z.string() })).optional(),
+                        fileType: z.string().optional(),
+                        duration: z.number().optional(),
+                        resolution: z.string().optional(),
+                    })
+                    .optional(),
                 prompt: z.string().optional(),
                 confidence: z.number().min(0).max(1),
             });
 
             const currentMessage = chatHistory[chatHistory.length - 1].message;
-            const outputParser = StructuredOutputParser.fromZodSchema(ContentCreationSchema);
+            const outputParser = OutputFixingParser.fromLLM(this.genAI, StructuredOutputParser.fromZodSchema(ContentCreationSchema));
             const contextSummary = await this.generateSummary(chatHistory.slice(0, -1));
 
             const promptTemplate = new PromptTemplate({
@@ -197,7 +212,7 @@ export class GenAIService {
                 CURRENT REQUEST: {message}
 
                 REFERENCED CONTENT:
-                When user mentions @mention {{uid: uuidv4, name: History Chapter 3, type: 'NOTE'}}, the system provides corresponding content data as references array:
+                When user mentions @mention {{uid: uuidv4, name: History Chapter 3, type: 'NOTE'}}, the system provides corresponding content data in references array:
                 {references}
 
                 NAME RULES:
@@ -208,25 +223,27 @@ export class GenAIService {
                 - Use the most appropriate type for the content (from the allowed enum, e.g., 'NOTE'), based on the user's request.
 
                 PARENT ID RULES:
-                1. If the user explicitly requests creation *inside* a specific folder (e.g., "create a note in @mention {{uid: uuidv4, name: History, type: 'FOLDER'}}"), use that folder's ID as parentId.
-                2. If the user mentions existing content (e.g., "summarize @mention {{uid: uuidv4, name: History Chapter 3, type: 'NOTE'}} into a new note"), use the parentId of the mentioned content.
-                3. If no explicit folder mention or a general request (e.g., "create a new flashcard set"), set parentId to null (root level).
+                1. If the user explicitly requests creation *inside* a specific folder (e.g., "create a note in @mention {{...}}"), use that folder's ID as parentId.
+                2. If the user mentions existing content (e.g., "summarize @mention {{...}}"), use the parentId of the mentioned content.
+                3. If no explicit folder mention or a general request (e.g., "create a new flashcard set"), set parentId to null.
 
                 CONTENT TYPE SPECIFIC RULES:
                 - FOLDER: Requires metadata.color (hex code, e.g., "#A8C686") and metadata.icon (from allowed enum, e.g., "book").
-                - NOTE: Include a brief metadata.description. The markdown content should be in metadata.content, structured with sections and sub-sections and formatted with headers, lists, code blocks, tables. Maximum of 200 words.
-                - FLASHCARD: Include a brief metadata.description. The flashcards should be a JSON array of {{"question":"", "answer":""}} objects in metadata.content. Maximum of 10 cards.
+                - NOTE: Include a brief metadata.description. The markdown content should be in metadata.notes, structured with sections and sub-sections and formatted with headers, lists, code blocks, tables. Maximum of 200 words.
+                - FLASHCARD: Include a brief metadata.description. The flashcards should be a JSON array of {{"question":"", "answer":""}} objects in metadata.cards. Maximum of 10 cards.
                 - DOCUMENT: Include a brief metadata.description. Set metadata.fileType to "pdf".
                 - AUDIO: Include a brief metadata.description. Set metadata.fileType to "mp3". Estimate metadata.duration in seconds.
                 - VIDEO: Include a brief metadata.description. Set metadata.fileType to "mp4". Estimate metadata.duration in seconds.
                 - IMAGE: Include a brief metadata.description. Set metadata.fileType to "png". Provide metadata.resolution in "widthxheight" format (e.g., "1920x1080").
 
-                PROMPT GENERATION RULES (for downstream services):
-                - For DOCUMENT (MARKDOWN→PDF conversion): Use the markdown content in the 'prompt' field. The markdown content should be structured with sections and sub-sections and formatted with headers, lists, code blocks, tables. Maximum of 200 words.
-                - For AUDIO (TEXT→SPEECH conversion): Use the textual content (e.g., a short script) in the 'prompt' field. Maximum of 100 words.
-                - For VIDEO (SCRIPT→VIDEO conversion): Use the video script in the 'prompt' field. Maximum of 100 words.
-                - For IMAGE generation: Use a concise image description in the 'prompt' field. Maximum of 20 words.
+                PROMPT GENERATION RULES (Only for type: DOCUMENT, AUDIO, VIDEO, IMAGE):
+                - DOCUMENT: Set 'prompt' to a well-structured markdown document with sections, lists, and tables (max 200 words).
+                - AUDIO: Set 'prompt' to a short and natural-sounding script for speech synthesis (max 100 words).
+                - VIDEO: Set 'prompt' to a clear and engaging video script for visual narration (max 100 words).
+                - IMAGE: Set 'prompt' to a concise and specific image description (max 20 words).
 
+                Do not include the 'prompt' field for other types.
+                
                 {format_instructions}`,
                 inputVariables: ['message', 'references', 'contextSummary'],
                 partialVariables: { format_instructions: outputParser.getFormatInstructions() },

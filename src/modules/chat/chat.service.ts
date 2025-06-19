@@ -151,6 +151,8 @@ export class ChatService {
                     }
 
                     const createResponse = await this.genAIService.generateContentCreation(chatMessage, references);
+
+                    console.log('createResponse', createResponse);
                 }
             }
 
