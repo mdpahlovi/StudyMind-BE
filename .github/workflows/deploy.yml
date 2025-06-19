@@ -16,6 +16,8 @@ jobs:
                   username: ${{ secrets.VPS_USERNAME }}
                   key: ${{ secrets.VPS_SSH_KEY }}
                   script: |
+                      source ~/.bashrc
+                      source ~/.profile
                       cd ~/studymind
                       git pull origin main
                       npm ci --legacy-peer-deps
