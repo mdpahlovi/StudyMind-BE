@@ -3,6 +3,7 @@ import { getMimeType } from '@/utils/getMimeType';
 import { HttpService } from '@nestjs/axios';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import * as fs from 'fs';
+import { mdToPdf } from 'md-to-pdf';
 import * as path from 'path';
 import { firstValueFrom } from 'rxjs';
 import { pipeline } from 'stream';
@@ -39,6 +40,29 @@ export class DownloadService {
             return { filePath, fileUrl, fileSize };
         } catch (error) {
             throw new HttpException(`Failed to download file: ${error.message}`, HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    async downloadPdf(prompt: string, fileName: string) {
+        try {
+            const filePath = fileName.replace(/ /g, '_').toLowerCase().concat(`_${Date.now()}.pdf`);
+            const tempPath = path.join(path.join(__dirname, '..', '..', '..', 'public'), filePath);
+
+            await mdToPdf({ content: prompt }, { dest: tempPath });
+
+            const fileSize = fs.statSync(tempPath).size;
+            const { data, error } = await this.supabaseService.storage.upload(filePath, fs.readFileSync(tempPath), {
+                contentType: getMimeType('pdf'),
+            });
+            if (error) {
+                throw new HttpException(error.message, (error as any)?.statusCode ? Number((error as any)?.statusCode) : 500);
+            }
+
+            fs.unlinkSync(tempPath);
+            const { publicUrl: fileUrl } = this.supabaseService.storage.getPublicUrl(data.path).data;
+            return { filePath, fileUrl, fileSize };
+        } catch (error) {
+            throw new HttpException(`Failed to download PDF: ${error.message}`, HttpStatus.BAD_REQUEST);
         }
     }
 }

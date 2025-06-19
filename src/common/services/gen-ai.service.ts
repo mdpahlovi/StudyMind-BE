@@ -58,6 +58,7 @@ export class GenAIService {
 
             const response = await this.genAI.invoke([systemPrompt, ...prevMessages]);
 
+            console.log('Contextual response:', response.text);
             return response.text;
         } catch (error) {
             throw new HttpException('Failed to generate contextual response', HttpStatus.INTERNAL_SERVER_ERROR);
@@ -82,6 +83,7 @@ export class GenAIService {
                 new HumanMessage(`Conversation:\n${recentConversation}`),
             ]);
 
+            console.log('Summary:', response.text);
             return response.text;
         } catch (error) {
             return new HttpException('Failed to summarize context', HttpStatus.INTERNAL_SERVER_ERROR);
@@ -125,7 +127,7 @@ export class GenAIService {
                 DECISION LOGIC:
                 1. If @mention {{...}} + creation keywords (create, make, generate, turn into, convert, build, add) → CREATE
                 2. If @mention {{...}} + analysis/discussion keywords (overview, explain, discuss, understand, help with) → READ  
-                3. If creation keywords without @mention → CREATE
+                3. If creation keywords without @mention {{...}} → CREATE
                 4. Otherwise → CHAT
 
                 EXAMPLES:
@@ -148,6 +150,7 @@ export class GenAIService {
                 ),
             ]);
 
+            console.log('Initial Decision', response.text);
             return await outputParser.parse(response.text);
         } catch (error) {
             throw new HttpException('Failed to generate initial decision', HttpStatus.INTERNAL_SERVER_ERROR);
@@ -234,6 +237,7 @@ export class GenAIService {
                 ),
             ]);
 
+            console.log('Content response', response.text);
             return await outputParser.parse(response.text);
         } catch (error) {
             console.error(error);

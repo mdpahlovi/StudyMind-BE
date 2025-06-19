@@ -153,6 +153,7 @@ export class ChatService {
 
                 let metadata = {};
                 if (createResponse?.type === 'DOCUMENT') {
+                    metadata = await this.downloadService.downloadPdf(createResponse.prompt, createResponse.name);
                 } else if (createResponse?.type === 'AUDIO') {
                     metadata = await this.downloadService.downloadFile(
                         `https://text.pollinations.ai/${createResponse.prompt}?model=openai-audio&voice=nova`,
