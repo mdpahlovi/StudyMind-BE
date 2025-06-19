@@ -7,7 +7,6 @@ import { chatMessages, chatSessions } from '@/database/schemas/chat.schema';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray } from 'drizzle-orm';
 import { RequestQueryDto } from './chat.dto';
-import e from 'express';
 
 @Injectable()
 export class ChatService {
@@ -82,21 +81,29 @@ export class ChatService {
         const db = this.databaseService.database;
 
         return await db.transaction(async tx => {
+            const currMessage = body.message[body.message.length - 1];
+            const chatMessage = body.message;
+
+            const initialDecision = await this.genAIService.generateInitialDecision(chatMessage);
+            if (!initialDecision?.action) {
+                throw new BadRequestException('Please provide more specific instructions. Thank you.');
+            }
+
             // Create or update chat session
             const chatSession = await tx
                 .insert(chatSessions)
                 .values({
                     uid: uid,
                     userId: user.id,
-                    title: 'Unnamed Chat',
-                    description: '',
-                    lastMessage: body.message,
+                    title: initialDecision?.title || 'Unnamed Chat',
+                    description: initialDecision?.description || '',
+                    lastMessage: currMessage.message,
                     lastMessageAt: new Date(),
                 })
                 .onConflictDoUpdate({
                     target: [chatSessions.uid],
                     set: {
-                        lastMessage: body.message,
+                        lastMessage: currMessage.message,
                         lastMessageAt: new Date(),
                     },
                 })
@@ -104,24 +111,12 @@ export class ChatService {
 
             // Insert current message
             await tx.insert(chatMessages).values({
-                ...body,
+                ...currMessage,
                 chatSessionId: chatSession[0].id,
             });
 
-            // Get all messages of this chat session
-            const chatMessage = await tx
-                .select()
-                .from(chatMessages)
-                .where(eq(chatMessages.chatSessionId, chatSession[0].id))
-                .orderBy(asc(chatMessages.createdAt));
-
             if (!chatSession?.length || !chatMessage?.length) {
-                throw new NotFoundException('Chat session or message not found');
-            }
-
-            const initialDecision = await this.genAIService.generateInitialDecision(chatMessage);
-            if (!initialDecision?.action) {
-                throw new BadRequestException('Please provide more specific instructions. Thank you.');
+                throw new NotFoundException('Chat session or message not found. Please try again.');
             }
 
             let response = '';
@@ -195,16 +190,6 @@ export class ChatService {
             }
 
             if (response) {
-                const session = await tx
-                    .update(chatSessions)
-                    .set({
-                        title: initialDecision?.title,
-                        description: initialDecision?.description,
-                        lastMessage: response,
-                        lastMessageAt: new Date(),
-                    })
-                    .where(eq(chatSessions.id, chatSession[0].id));
-
                 const message = await tx
                     .insert(chatMessages)
                     .values({
@@ -217,7 +202,7 @@ export class ChatService {
                 return {
                     message: 'Chat session requested successfully',
                     data: {
-                        session: session[0],
+                        session: chatSession[0],
                         message: message[0],
                     },
                 };

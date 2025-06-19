@@ -1,6 +1,6 @@
 import { FOLDER_ICONS } from '@/constraints';
 import { LibraryItem } from '@/database/schemas';
-import { ChatMessage } from '@/database/schemas/chat.schema';
+import { MessageDto } from '@/modules/chat/chat.dto';
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { PromptTemplate } from '@langchain/core/prompts';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
@@ -37,7 +37,7 @@ export class GenAIService {
         }
     }
 
-    async generateContextualResponse(chatHistory: ChatMessage[] = []) {
+    async generateContextualResponse(chatHistory: MessageDto[] = []) {
         try {
             const prevMessages = chatHistory.map(message => {
                 switch (message.role) {
@@ -64,7 +64,7 @@ export class GenAIService {
         }
     }
 
-    async generateSummary(chatHistory: ChatMessage[]) {
+    async generateSummary(chatHistory: MessageDto[]) {
         if (chatHistory.length === 0) return '';
 
         const recentConversation = chatHistory
@@ -88,7 +88,7 @@ export class GenAIService {
         }
     }
 
-    async generateInitialDecision(chatHistory: ChatMessage[]) {
+    async generateInitialDecision(chatHistory: MessageDto[]) {
         try {
             const InitialDecisionSchema = z.object({
                 // Session info
@@ -154,7 +154,7 @@ export class GenAIService {
         }
     }
 
-    async generateContentCreation(chatHistory: ChatMessage[], references: LibraryItem[]) {
+    async generateContentCreation(chatHistory: MessageDto[], references: LibraryItem[]) {
         try {
             const ContentCreationSchema = z.object({
                 name: z.string(),
@@ -241,7 +241,7 @@ export class GenAIService {
         }
     }
 
-    async generateContentAnalysis(chatHistory: ChatMessage[]) {
+    async generateContentAnalysis(chatHistory: MessageDto[]) {
         try {
             const currentMessage = chatHistory.pop().message;
             const contextSummary = await this.generateSummary(chatHistory);
