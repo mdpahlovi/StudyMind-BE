@@ -231,15 +231,15 @@ export class GenAIService {
 
                 CONTENT TYPE SPECIFIC RULES:
                 - FOLDER: Requires metadata.color (hex code, e.g., "#A8C686") and metadata.icon (from allowed enum, e.g., "book").
-                - NOTE: Include a brief metadata.description. The markdown content should be in metadata.notes, structured with sections and sub-sections and formatted with headers, lists, code blocks, tables. Maximum of 200 words.
-                - FLASHCARD: Include a brief metadata.description. The flashcards should be a JSON array of {{"question":"", "answer":""}} objects in metadata.cards. Maximum of 10 cards.
+                - NOTE: Include a brief metadata.description. The markdown content should be in metadata.notes, structured with sections and sub-sections and formatted with headers, lists, tables. (max 1000 words).
+                - FLASHCARD: Include a brief metadata.description. The flashcards should be a JSON array of {{"question":"", "answer":""}} objects in metadata.cards. Number of cards should be in metadata.cardCount. (max 10 cards).
                 - DOCUMENT: Include a brief metadata.description. Set metadata.fileType to "pdf".
                 - AUDIO: Include a brief metadata.description. Set metadata.fileType to "mp3". Estimate metadata.duration in seconds.
                 - VIDEO: Include a brief metadata.description. Set metadata.fileType to "mp4". Estimate metadata.duration in seconds.
                 - IMAGE: Include a brief metadata.description. Set metadata.fileType to "png". Provide metadata.resolution in "widthxheight" format (e.g., "1920x1080").
 
                 PROMPT GENERATION RULES (Only for type: DOCUMENT, AUDIO, VIDEO, IMAGE):
-                - DOCUMENT: Set 'prompt' to a well-structured markdown document with sections, lists, and tables (max 200 words).
+                - DOCUMENT: Set 'prompt' to a well-structured markdown document with headers, lists, and tables (max 200 words).
                 - AUDIO: Set 'prompt' to a short and natural-sounding script for speech synthesis (max 100 words).
                 - VIDEO: Set 'prompt' to a clear and engaging video script for visual narration (max 100 words).
                 - IMAGE: Set 'prompt' to a concise and specific image description (max 20 words).
@@ -263,6 +263,7 @@ export class GenAIService {
 
             return await outputParser.parse(response.text);
         } catch (error) {
+            console.error(error);
             throw new HttpException('Failed to generate content', HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }

@@ -1,3 +1,4 @@
+import { DownloadService } from '@/common/services/download.service';
 import { GenAIService } from '@/common/services/gen-ai.service';
 import { SupabaseService } from '@/common/services/supabase.service';
 import { DatabaseService } from '@/database/database.service';
@@ -6,6 +7,7 @@ import { chatMessages, chatSessions } from '@/database/schemas/chat.schema';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray } from 'drizzle-orm';
 import { RequestQueryDto } from './chat.dto';
+import { console } from 'inspector';
 
 @Injectable()
 export class ChatService {
@@ -13,6 +15,7 @@ export class ChatService {
         private readonly databaseService: DatabaseService,
         private readonly supabaseService: SupabaseService,
         private readonly genAIService: GenAIService,
+        private readonly downloadService: DownloadService,
     ) {}
 
     async getChats(query: any, user: User) {
@@ -152,7 +155,26 @@ export class ChatService {
 
                     const createResponse = await this.genAIService.generateContentCreation(chatMessage, references);
 
-                    console.log('createResponse', createResponse);
+                    if (createResponse?.name && createResponse?.type) {
+                        if (createResponse?.type === 'DOCUMENT' && createResponse?.prompt) {
+                        } else if (createResponse?.type === 'AUDIO' && createResponse?.prompt) {
+                            const downloadedAudio = await this.downloadService.downloadFile(
+                                `https://text.pollinations.ai/${createResponse.prompt}?model=openai-audio&voice=nova`,
+                                createResponse.name,
+                                createResponse?.metadata?.fileType || 'mp3',
+                            );
+                        } else if (createResponse?.type === 'VIDEO' && createResponse?.prompt) {
+                        } else if (createResponse?.type === 'IMAGE' && createResponse?.prompt) {
+                            const resolution = createResponse?.metadata?.resolution?.split('x');
+                            const width = resolution?.length === 2 ? resolution[0] : '1024';
+                            const height = resolution?.length === 2 ? resolution[1] : '1024';
+                            const downloadedImage = await this.downloadService.downloadFile(
+                                `https://image.pollinations.ai/prompt/${createResponse.prompt}?width=${width}&height=${height}`,
+                                createResponse.name,
+                                createResponse?.metadata?.fileType || 'png',
+                            );
+                        }
+                    }
                 }
             }
 

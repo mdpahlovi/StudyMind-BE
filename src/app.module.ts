@@ -9,6 +9,7 @@ import { ChatModule } from '@/modules/chat/chat.module';
 import { HealthModule } from '@/modules/health/health.module';
 import { LibraryModule } from '@/modules/library/library.module';
 import { UserModule } from '@/modules/user/user.module';
+import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
@@ -17,6 +18,9 @@ import { PassportModule } from '@nestjs/passport';
 
 @Module({
     imports: [
+        HttpModule.register({
+            global: true,
+        }),
         ConfigModule.forRoot({
             isGlobal: true,
             load: [configuration],
