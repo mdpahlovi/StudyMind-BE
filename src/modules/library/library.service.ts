@@ -1,16 +1,18 @@
 import { SupabaseService } from '@/common/services/supabase.service';
+import { VectorService } from '@/common/services/vector.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
 import { libraryItem } from '@/database/schemas/library.schema';
 import { CreateLibraryItemDto, updateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 
 @Injectable()
 export class LibraryService {
     constructor(
         private readonly databaseService: DatabaseService,
         private readonly supabaseService: SupabaseService,
+        private readonly vectorService: VectorService,
     ) {}
 
     async getLibraryItems(query: any, user: User) {
@@ -179,7 +181,7 @@ export class LibraryService {
             let metadata = { ...body.metadata };
 
             if (file) {
-                const fileMetadata = await this.supabaseService.uploadFile(file);
+                const fileMetadata = await this.supabaseService.uploadFile(file, metadata?.fileType);
                 metadata = { ...metadata, ...fileMetadata };
             }
 
@@ -245,5 +247,17 @@ export class LibraryService {
         }
 
         return { message: 'Library item updated successfully', data: updatedData };
+    }
+
+    async embeddLibraryItem(uid: string, user: User) {
+        const db = this.databaseService.database;
+
+        const [doesLibraryItemExist] = await db.select().from(libraryItem).where(eq(libraryItem.uid, uid));
+
+        if (!doesLibraryItemExist) {
+            throw new NotFoundException('Library item not found');
+        }
+
+        const ids = await this.vectorService.embedPdf(doesLibraryItemExist.metadata);
     }
 }
