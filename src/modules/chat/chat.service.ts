@@ -7,7 +7,7 @@ import { chatMessages, chatSessions } from '@/database/schemas/chat.schema';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray } from 'drizzle-orm';
 import { RequestQueryDto } from './chat.dto';
-import { console } from 'inspector';
+import e from 'express';
 
 @Injectable()
 export class ChatService {
@@ -82,103 +82,129 @@ export class ChatService {
         const db = this.databaseService.database;
 
         return await db.transaction(async tx => {
-            let chatSession = await tx
-                .update(chatSessions)
-                .set({
+            // Create or update chat session
+            const chatSession = await tx
+                .insert(chatSessions)
+                .values({
+                    uid: uid,
+                    userId: user.id,
+                    title: 'Unnamed Chat',
+                    description: '',
                     lastMessage: body.message,
                     lastMessageAt: new Date(),
                 })
-                .where(eq(chatSessions.uid, uid))
-                .returning();
-            let chatMessage = [];
-
-            if (chatSession?.length) {
-                await tx.insert(chatMessages).values({
-                    ...body,
-                    chatSessionId: chatSession[0].id,
-                });
-
-                chatMessage = await tx
-                    .select()
-                    .from(chatMessages)
-                    .where(eq(chatMessages.chatSessionId, chatSession[0].id))
-                    .orderBy(asc(chatMessages.createdAt));
-            } else {
-                const initSession = await this.genAIService.generateSession(body.message);
-
-                chatSession = await tx
-                    .insert(chatSessions)
-                    .values({
-                        uid: uid,
-                        userId: user.id,
-                        title: initSession?.title || 'Unnamed Chat',
-                        description: initSession?.description || '',
+                .onConflictDoUpdate({
+                    target: [chatSessions.uid],
+                    set: {
                         lastMessage: body.message,
                         lastMessageAt: new Date(),
-                    })
-                    .returning();
+                    },
+                })
+                .returning();
 
-                chatMessage = await tx
-                    .insert(chatMessages)
-                    .values({ ...body, chatSessionId: chatSession[0].id })
-                    .returning();
-            }
+            // Insert current message
+            await tx.insert(chatMessages).values({
+                ...body,
+                chatSessionId: chatSession[0].id,
+            });
+
+            // Get all messages of this chat session
+            const chatMessage = await tx
+                .select()
+                .from(chatMessages)
+                .where(eq(chatMessages.chatSessionId, chatSession[0].id))
+                .orderBy(asc(chatMessages.createdAt));
 
             if (!chatSession?.length || !chatMessage?.length) {
                 throw new NotFoundException('Chat session or message not found');
             }
 
             const initialDecision = await this.genAIService.generateInitialDecision(chatMessage);
+            if (!initialDecision?.action) {
+                throw new BadRequestException('Please provide more specific instructions. Thank you.');
+            }
 
             let response = '';
-            if (initialDecision?.action) {
-                if (initialDecision.action === 'CHAT') {
-                    response = await this.genAIService.generateContextualResponse(chatMessage);
+            if (initialDecision.action === 'CHAT') {
+                response = await this.genAIService.generateContextualResponse(chatMessage);
+            }
+            if (initialDecision.action === 'READ') {
+                // response = await this.genAIService.generateContentAnalysis(chatMessage);
+            }
+            if (initialDecision.action === 'CREATE') {
+                let references = [];
+
+                // Get reference items
+                if (initialDecision?.references?.length) {
+                    references = await tx
+                        .select()
+                        .from(libraryItem)
+                        .where(
+                            inArray(
+                                libraryItem.uid,
+                                initialDecision.references.map(ref => ref.uid),
+                            ),
+                        );
                 }
-                if (initialDecision.action === 'READ') {
-                    // response = await this.genAIService.generateContentAnalysis(chatMessage);
+
+                // Content generation prompt
+                const createResponse = await this.genAIService.generateContentCreation(chatMessage, references);
+                if (!createResponse?.name || !createResponse?.type) {
+                    throw new BadRequestException('Please provide more specific instructions. What do you want to create?');
                 }
-                if (initialDecision.action === 'CREATE') {
-                    let references = [];
+                if (['DOCUMENT', 'AUDIO', 'VIDEO', 'IMAGE'].includes(createResponse?.type) && !createResponse?.prompt) {
+                    throw new BadRequestException('Please provide more specific instructions. What do you want to create?');
+                }
 
-                    if (initialDecision?.references?.length) {
-                        references = await tx
-                            .select()
-                            .from(libraryItem)
-                            .where(
-                                inArray(
-                                    libraryItem.uid,
-                                    initialDecision.references.map(ref => ref.uid),
-                                ),
-                            );
-                    }
+                let metadata = {};
+                if (createResponse?.type === 'DOCUMENT') {
+                } else if (createResponse?.type === 'AUDIO') {
+                    metadata = await this.downloadService.downloadFile(
+                        `https://text.pollinations.ai/${createResponse.prompt}?model=openai-audio&voice=nova`,
+                        createResponse.name,
+                        createResponse?.metadata?.fileType || 'mp3',
+                    );
+                } else if (createResponse?.type === 'VIDEO') {
+                } else if (createResponse?.type === 'IMAGE') {
+                    const resolution = createResponse?.metadata?.resolution?.split('x');
+                    const width = resolution?.length === 2 ? resolution[0] : '1024';
+                    const height = resolution?.length === 2 ? resolution[1] : '1024';
+                    metadata = await this.downloadService.downloadFile(
+                        `https://image.pollinations.ai/prompt/${createResponse.prompt}?width=${width}&height=${height}`,
+                        createResponse.name,
+                        createResponse?.metadata?.fileType || 'png',
+                    );
+                }
 
-                    const createResponse = await this.genAIService.generateContentCreation(chatMessage, references);
+                const createdItem = await tx
+                    .insert(libraryItem)
+                    .values({
+                        name: createResponse.name,
+                        type: createResponse.type,
+                        parentId: createResponse?.parentId || null,
+                        userId: user.id,
+                        metadata: { ...(createResponse?.metadata || {}), ...metadata },
+                    })
+                    .returning();
 
-                    if (createResponse?.name && createResponse?.type) {
-                        if (createResponse?.type === 'DOCUMENT' && createResponse?.prompt) {
-                        } else if (createResponse?.type === 'AUDIO' && createResponse?.prompt) {
-                            const downloadedAudio = await this.downloadService.downloadFile(
-                                `https://text.pollinations.ai/${createResponse.prompt}?model=openai-audio&voice=nova`,
-                                createResponse.name,
-                                createResponse?.metadata?.fileType || 'mp3',
-                            );
-                        } else if (createResponse?.type === 'VIDEO' && createResponse?.prompt) {
-                        } else if (createResponse?.type === 'IMAGE' && createResponse?.prompt) {
-                            const resolution = createResponse?.metadata?.resolution?.split('x');
-                            const width = resolution?.length === 2 ? resolution[0] : '1024';
-                            const height = resolution?.length === 2 ? resolution[1] : '1024';
-                            const downloadedImage = await this.downloadService.downloadFile(
-                                `https://image.pollinations.ai/prompt/${createResponse.prompt}?width=${width}&height=${height}`,
-                                createResponse.name,
-                                createResponse?.metadata?.fileType || 'png',
-                            );
-                        }
-                    }
+                if (createdItem?.length) {
+                    response = `An item has been created successfully in your library. click here to view.\n\n@created {uid: '${createdItem[0].uid}', name: '${createdItem[0].name}', type: '${createdItem[0].type}'}`;
+                } else {
+                    throw new BadRequestException('Failed to create item. Please try again later.');
                 }
             }
 
             if (response) {
+                const session = await tx
+                    .update(chatSessions)
+                    .set({
+                        title: initialDecision?.title,
+                        description: initialDecision?.description,
+                        lastMessage: response,
+                        lastMessageAt: new Date(),
+                    })
+                    .where(eq(chatSessions.id, chatSession[0].id));
+
                 const message = await tx
                     .insert(chatMessages)
                     .values({
@@ -191,7 +217,7 @@ export class ChatService {
                 return {
                     message: 'Chat session requested successfully',
                     data: {
-                        session: chatSession[0],
+                        session: session[0],
                         message: message[0],
                     },
                 };

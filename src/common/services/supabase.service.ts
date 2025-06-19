@@ -12,8 +12,10 @@ export class SupabaseService {
 
     private supabase = createClient(this.supabaseUrl, this.supabaseKey);
 
+    public storage = this.supabase.storage.from('studymind');
+
     async uploadFile(file: Express.Multer.File, fileType: string) {
-        const filePath = `${Date.now()}-${file.originalname}`;
+        const filePath = `${Date.now()}_${file.originalname.replace(/ /g, '_').toLowerCase()}`;
         const { data, error } = await this.supabase.storage.from('studymind').upload(filePath, file.buffer, {
             contentType: getMimeType(fileType),
         });

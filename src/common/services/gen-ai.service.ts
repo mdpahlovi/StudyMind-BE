@@ -64,41 +64,6 @@ export class GenAIService {
         }
     }
 
-    async generateSession(message: string) {
-        try {
-            const SessionSchema = z.object({
-                title: z.string().optional(),
-                description: z.string().optional(),
-            });
-
-            const outputParser = OutputFixingParser.fromLLM(this.genAI, StructuredOutputParser.fromZodSchema(SessionSchema));
-
-            const promptTemplate = new PromptTemplate({
-                template: `You are StudyMind AI, an educational assistant. Based on the user query, generate an appropriate title and description for this chat session.
-
-                GUIDELINES:
-                - Title: Be specific and educational-focused (e.g., "Calculus Derivatives Help" not "Math Question")
-                - Description: Capture the user's learning intent and subject area
-                - Focus on the educational topic, not the conversation itself
-                - Use clear, academic language
-
-                USER QUERY: {message}
-
-                Generate a title and description that will help the user identify this conversation later in their chat history.
-
-                {format_instructions}`,
-                inputVariables: ['message'],
-                partialVariables: { format_instructions: outputParser.getFormatInstructions() },
-            });
-
-            const response = await this.genAI.invoke([new HumanMessage(await promptTemplate.format({ message }))]);
-
-            return await outputParser.parse(response.text);
-        } catch (error) {
-            throw new HttpException('Failed to generate title', HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
     async generateSummary(chatHistory: ChatMessage[]) {
         if (chatHistory.length === 0) return '';
 
@@ -125,7 +90,11 @@ export class GenAIService {
 
     async generateInitialDecision(chatHistory: ChatMessage[]) {
         try {
-            const initialDecisionSchema = z.object({
+            const InitialDecisionSchema = z.object({
+                // Session info
+                title: z.string().optional(),
+                description: z.string().optional(),
+                // Initial decision
                 action: z.enum(['CHAT', 'READ', 'CREATE']),
                 intent: z.string(),
                 confidence: z.number().min(0).max(1),
@@ -133,21 +102,25 @@ export class GenAIService {
             });
 
             const currentMessage = chatHistory[chatHistory.length - 1].message;
-            const outputParser = OutputFixingParser.fromLLM(this.genAI, StructuredOutputParser.fromZodSchema(initialDecisionSchema));
+            const outputParser = OutputFixingParser.fromLLM(this.genAI, StructuredOutputParser.fromZodSchema(InitialDecisionSchema));
             const contextSummary = await this.generateSummary(chatHistory.slice(0, -1));
 
             const promptTemplate = new PromptTemplate({
-                template: `You are StudyMind AI, an educational assistant. Analyze the user's message to determine the appropriate action.
+                template: `You are StudyMind AI, an educational assistant. Analyze the user's intent and provide appropriate decisions. 
 
                 CONVERSATION CONTEXT: {contextSummary}
                 CURRENT MESSAGE: {message}
+
+                SESSION GENERATION GUIDELINES:
+                - Title: Be specific and educational-focused (e.g., "Calculus Derivatives Help" not "Math Question")
+                - Description: Capture the user's learning intent and subject area
 
                 ACTION DEFINITIONS:
                 - READ: User references existing content (@mention {{...}}) for analysis, discussion, or questions about it
                 - CREATE: User wants to generate NEW study materials, either standalone OR from existing content (@mention {{...}})
                 - CHAT: General discussions, explanations, Q&A without content creation or analysis
 
-                @MENTION FORMAT: @mention {{uid: content uid, name: content name, type: content type}} 
+                MENTION FORMAT: @mention {{uid: content uid, name: content name, type: content type}} 
 
                 DECISION LOGIC:
                 1. If @mention {{...}} + creation keywords (create, make, generate, turn into, convert, build, add) → CREATE
