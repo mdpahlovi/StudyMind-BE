@@ -26,8 +26,9 @@
     "dependencies": {
         "@google/genai": "^1.5.1",
         "@langchain/community": "^0.3.46",
-        "@langchain/core": "^0.3.58",
+        "@langchain/core": "^0.3.59",
         "@langchain/google-genai": "^0.2.12",
+        "@langchain/openai": "^0.5.13",
         "@langchain/pinecone": "^0.2.0",
         "@nestjs/common": "^11.1.2",
         "@nestjs/config": "^4.0.2",

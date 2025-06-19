@@ -4,6 +4,7 @@ import { ChatMessage } from '@/database/schemas/chat.schema';
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { PromptTemplate } from '@langchain/core/prompts';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { ChatOpenAI } from '@langchain/openai';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OutputFixingParser, StructuredOutputParser } from 'langchain/output_parsers';
@@ -12,6 +13,7 @@ import { z } from 'zod';
 @Injectable()
 export class GenAIService {
     private genAI: ChatGoogleGenerativeAI;
+    private gptAi: ChatOpenAI;
 
     constructor(private readonly configService: ConfigService) {
         this.initializeGenAI();
