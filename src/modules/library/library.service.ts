@@ -3,7 +3,7 @@ import { VectorService } from '@/common/services/vector.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
 import { libraryItem } from '@/database/schemas/library.schema';
-import { CreateLibraryItemDto, updateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
+import { CreateLibraryItemDto, UpdateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 
@@ -233,7 +233,7 @@ export class LibraryService {
         return { message: 'Library item updated successfully', data: updatedData[0] };
     }
 
-    async updateBulkLibraryItems(body: updateBulkLibraryItemsDto, user: User) {
+    async updateBulkLibraryItems(body: UpdateBulkLibraryItemsDto, user: User) {
         const db = this.databaseService.database;
 
         const updatedData = await db

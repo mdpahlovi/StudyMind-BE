@@ -225,7 +225,7 @@ export class ChatService {
         const updatedData = await db
             .update(chatSessions)
             .set({
-                ...(body.title ? { name: body.title } : {}),
+                ...(body.title ? { title: body.title } : {}),
                 updatedAt: new Date(),
             })
             .where(eq(chatSessions.uid, uid))
@@ -243,7 +243,10 @@ export class ChatService {
 
         const updatedData = await db
             .update(chatSessions)
-            .set({ isActive: false, updatedAt: new Date() })
+            .set({
+                ...(body.isActive ? { isActive: body.isActive } : {}),
+                updatedAt: new Date(),
+            })
             .where(inArray(chatSessions.uid, body.uid))
             .returning();
 

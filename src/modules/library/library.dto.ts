@@ -44,7 +44,7 @@ export class UpdateLibraryItemDto {
     metadata: any;
 }
 
-export class updateBulkLibraryItemsDto {
+export class UpdateBulkLibraryItemsDto {
     @ApiProperty({ description: 'Library item uid', example: '123' })
     @IsNotEmpty()
     uid: string[];

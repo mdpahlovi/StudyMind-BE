@@ -1,7 +1,7 @@
 import { ChatMessageRole } from '@/database/schemas/chat.schema';
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsNotEmpty, ValidateNested } from 'class-validator';
+import { IsNotEmpty, IsOptional, ValidateNested } from 'class-validator';
 
 export class MessageDto {
     @ApiProperty({ description: 'Message UID', example: 'Hello' })
@@ -42,4 +42,8 @@ export class UpdateBulkChatSessionDto {
     @ApiProperty({ description: 'Chat session uid', example: '123' })
     @IsNotEmpty()
     uid: string[];
+
+    @ApiProperty({ description: 'Chat session status', example: true })
+    @IsOptional()
+    isActive: boolean;
 }

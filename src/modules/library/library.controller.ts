@@ -1,7 +1,7 @@
 import { SupabaseService } from '@/common/services/supabase.service';
 import { User } from '@/database/schemas';
 import { CurrentUser } from '@/decorators/current-user.decorator';
-import { CreateLibraryItemDto, updateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
+import { CreateLibraryItemDto, UpdateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { LibraryService } from '@/modules/library/library.service';
 import { Body, Controller, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -48,7 +48,7 @@ export class LibraryController {
 
     @ApiOperation({ summary: 'Update bulk library items' })
     @Patch('bulk')
-    async updateBulkLibraryItems(@Body() body: updateBulkLibraryItemsDto, @CurrentUser() user: User) {
+    async updateBulkLibraryItems(@Body() body: UpdateBulkLibraryItemsDto, @CurrentUser() user: User) {
         return this.libraryService.updateBulkLibraryItems(body, user);
     }
 
