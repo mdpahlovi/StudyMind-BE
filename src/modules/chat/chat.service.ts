@@ -183,7 +183,7 @@ export class ChatService {
                     })
                     .returning();
 
-                if (createdItem?.length) {
+                if (Array.isArray(createdItem) && createdItem?.length) {
                     response = `An item has been created successfully in your library. click here to view.\n\n@created {uid: '${createdItem[0].uid}', name: '${createdItem[0].name}', type: '${createdItem[0].type}'}`;
                 } else {
                     throw new BadRequestException('Failed to create item. Please try again later.');
