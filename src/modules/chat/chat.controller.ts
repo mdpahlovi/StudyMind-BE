@@ -2,7 +2,7 @@ import { User } from '@/database/schemas';
 import { CurrentUser } from '@/decorators/current-user.decorator';
 import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RequestQueryDto } from './chat.dto';
+import { RequestQueryDto, UpdateBulkChatSessionDto, UpdateChatSessionDto } from './chat.dto';
 import { ChatService } from './chat.service';
 
 @ApiTags('Chat')
@@ -20,6 +20,18 @@ export class ChatController {
     @Get(':uid')
     async getOneChat(@Param('uid') uid: string, @CurrentUser() user: User) {
         return this.chatService.getOneChat(uid, user);
+    }
+
+    @ApiOperation({ summary: 'Update bulk library items' })
+    @Patch('update/bulk')
+    async updateBulkLibraryItems(@Body() body: UpdateBulkChatSessionDto, @CurrentUser() user: User) {
+        return this.chatService.updateBulkChatSession(body, user);
+    }
+
+    @ApiOperation({ summary: 'Update a library item' })
+    @Patch('update/:uid')
+    async updateLibraryItem(@Param('uid') uid: string, @Body() body: UpdateChatSessionDto, @CurrentUser() user: User) {
+        return this.chatService.updateChatSession(uid, body, user);
     }
 
     @ApiOperation({ summary: 'Request a query to a chat session' })

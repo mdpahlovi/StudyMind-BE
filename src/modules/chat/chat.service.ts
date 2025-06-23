@@ -6,7 +6,7 @@ import { libraryItem, User } from '@/database/schemas';
 import { chatMessages, chatSessions } from '@/database/schemas/chat.schema';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray } from 'drizzle-orm';
-import { RequestQueryDto } from './chat.dto';
+import { RequestQueryDto, UpdateBulkChatSessionDto, UpdateChatSessionDto } from './chat.dto';
 
 @Injectable()
 export class ChatService {
@@ -211,5 +211,46 @@ export class ChatService {
                 throw new BadRequestException('Failed to generate response. Please try again later.');
             }
         });
+    }
+
+    async updateChatSession(uid: string, body: UpdateChatSessionDto, user: User) {
+        const db = this.databaseService.database;
+
+        const [doesChatSessionsExist] = await db.select().from(chatSessions).where(eq(chatSessions.uid, uid));
+
+        if (!doesChatSessionsExist) {
+            throw new NotFoundException('Chat session not found');
+        }
+
+        const updatedData = await db
+            .update(chatSessions)
+            .set({
+                ...(body.title ? { name: body.title } : {}),
+                updatedAt: new Date(),
+            })
+            .where(eq(chatSessions.uid, uid))
+            .returning();
+
+        if (!updatedData[0] || !updatedData[0]?.uid) {
+            throw new BadRequestException('Failed to update chat session');
+        }
+
+        return { message: 'Chat session updated successfully', data: updatedData[0] };
+    }
+
+    async updateBulkChatSession(body: UpdateBulkChatSessionDto, user: User) {
+        const db = this.databaseService.database;
+
+        const updatedData = await db
+            .update(chatSessions)
+            .set({ isActive: false, updatedAt: new Date() })
+            .where(inArray(chatSessions.uid, body.uid))
+            .returning();
+
+        if (!updatedData[0] || !updatedData[0]?.uid) {
+            throw new BadRequestException('Failed to update chat session');
+        }
+
+        return { message: 'Chat session updated successfully', data: updatedData };
     }
 }
