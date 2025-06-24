@@ -27,13 +27,13 @@ export class UpdateLibraryItemDto {
     @IsOptional()
     isActive: boolean;
 
+    @ApiProperty({ description: 'Library item embedded status', example: true })
+    @IsOptional()
+    isEmbedded: boolean;
+
     @ApiProperty({ description: 'Library item name', example: 'Computer Science' })
     @IsOptional()
     name: string;
-
-    @ApiProperty({ description: 'Library item type', example: 'FOLDER' })
-    @IsOptional()
-    type: LibraryItemType;
 
     @ApiProperty({ description: 'Library item parent ID', example: null })
     @IsOptional()

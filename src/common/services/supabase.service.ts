@@ -1,7 +1,10 @@
 import { getMimeType } from '@/utils/getMimeType';
-import { HttpException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient } from '@supabase/supabase-js';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 @Injectable()
 export class SupabaseService {
@@ -20,7 +23,7 @@ export class SupabaseService {
             contentType: getMimeType(fileType),
         });
         if (error) {
-            throw new HttpException(error.message, (error as any)?.statusCode ? Number((error as any)?.statusCode) : 500);
+            throw new BadRequestException('Filed to upload file');
         }
 
         const { publicUrl: fileUrl } = this.supabase.storage.from('studymind').getPublicUrl(data.path).data;
@@ -28,6 +31,14 @@ export class SupabaseService {
     }
 
     async downloadFile(filePath: string) {
-        return await this.supabase.storage.from('studymind').download(filePath);
+        const { data, error } = await this.supabase.storage.from('studymind').download(filePath);
+        if (error) {
+            throw new BadRequestException('Failed to download file');
+        }
+
+        const tempFilePath = path.join(os.tmpdir(), `temp_${Date.now()}.pdf`);
+        fs.writeFileSync(tempFilePath, Buffer.from(await data.arrayBuffer()));
+
+        return tempFilePath;
     }
 }

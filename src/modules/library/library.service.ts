@@ -6,6 +6,7 @@ import { libraryItem } from '@/database/schemas/library.schema';
 import { CreateLibraryItemDto, UpdateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
+import * as fs from 'fs';
 
 @Injectable()
 export class LibraryService {
@@ -213,12 +214,18 @@ export class LibraryService {
             throw new NotFoundException('Library item not found');
         }
 
+        if (body.isEmbedded && doesLibraryItemExist.type === 'DOCUMENT' && !!doesLibraryItemExist.metadata['filePath']) {
+            const tempFilePath = await this.supabaseService.downloadFile(doesLibraryItemExist.metadata['filePath']);
+            await this.vectorService.processPDFDocument(tempFilePath, doesLibraryItemExist.id, user.id);
+            fs.unlinkSync(tempFilePath);
+        }
+
         const updatedData = await db
             .update(libraryItem)
             .set({
                 ...(body.isActive ? { isActive: body.isActive } : {}),
+                ...(body.isEmbedded ? { isEmbedded: body.isEmbedded } : {}),
                 ...(body.name ? { name: body.name } : {}),
-                ...(body.type ? { type: body.type } : {}),
                 ...(body.parentId ? { parentId: body.parentId } : {}),
                 ...(body.metadata ? { metadata: body.metadata } : {}),
                 updatedAt: new Date(),
@@ -247,17 +254,5 @@ export class LibraryService {
         }
 
         return { message: 'Library item updated successfully', data: updatedData };
-    }
-
-    async embeddLibraryItem(uid: string, user: User) {
-        const db = this.databaseService.database;
-
-        const [doesLibraryItemExist] = await db.select().from(libraryItem).where(eq(libraryItem.uid, uid));
-
-        if (!doesLibraryItemExist) {
-            throw new NotFoundException('Library item not found');
-        }
-
-        const ids = await this.vectorService.embedPdf(doesLibraryItemExist.metadata);
     }
 }

@@ -57,10 +57,4 @@ export class LibraryController {
     async updateLibraryItem(@Param('uid') uid: string, @Body() body: UpdateLibraryItemDto, @CurrentUser() user: User) {
         return this.libraryService.updateLibraryItem(uid, body, user);
     }
-
-    @ApiOperation({ summary: 'Embedd a library item' })
-    @Patch(':uid/embedd')
-    async embeddLibraryItem(@Param('uid') uid: string, @CurrentUser() user: User) {
-        return this.libraryService.embeddLibraryItem(uid, user);
-    }
 }

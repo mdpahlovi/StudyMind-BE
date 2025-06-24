@@ -37,6 +37,37 @@ export class GenAIService {
         }
     }
 
+    async analyzeContents(imageBase64: string) {
+        try {
+            const AnalyzeContentSchema = z.object({
+                contentType: z.enum(['TEXT', 'IMAGE', 'MIXED']),
+                description: z.string(),
+                hasFormulas: z.boolean(),
+                hasDiagrams: z.boolean(),
+                hasHandwriting: z.boolean(),
+            });
+            const outputParser = OutputFixingParser.fromLLM(this.genAI, StructuredOutputParser.fromZodSchema(AnalyzeContentSchema));
+
+            const prompt = new PromptTemplate({
+                template: `You are StudyMind AI, an educational assistant. Analyze the given base64 image and provide:
+                
+                1) A detailed description of the content.
+                2) Whether the content contains formulas.
+                3) Whether the content contains diagrams.
+                4) Whether the content contains handwritten text.
+                
+                IMAGE CONTENT: {image}`,
+                inputVariables: ['image'],
+            });
+
+            const response = await this.genAI.invoke([new HumanMessage(await prompt.format({ image: imageBase64 }))]);
+
+            return await outputParser.parse(response.text);
+        } catch (error) {
+            throw new HttpException('Failed to analyze content', HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
     async generateContextualResponse(chatHistory: MessageDto[] = []) {
         try {
             const prevMessages = chatHistory.map(message => {
