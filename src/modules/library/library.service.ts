@@ -215,9 +215,9 @@ export class LibraryService {
         }
 
         if (body.isEmbedded && doesLibraryItemExist.type === 'DOCUMENT' && !!doesLibraryItemExist.metadata['filePath']) {
-            const tempFilePath = await this.supabaseService.downloadFile(doesLibraryItemExist.metadata['filePath']);
-            await this.vectorService.processPDFDocument(tempFilePath, doesLibraryItemExist.id, user.id);
-            fs.unlinkSync(tempFilePath);
+            const tempPath = await this.supabaseService.downloadFile(doesLibraryItemExist.metadata['filePath']);
+            await this.vectorService.processAndEmbedPDF(tempPath, doesLibraryItemExist.uid, user.uid);
+            fs.unlinkSync(tempPath);
         }
 
         const updatedData = await db

@@ -20,7 +20,10 @@ export class DownloadService {
 
     async downloadFile(url: string, fileName: string, fileType: string) {
         try {
-            const filePath = fileName.replace(/ /g, '_').toLowerCase().concat(`_${Date.now()}.${fileType}`);
+            const filePath = fileName
+                .replace(/[^a-zA-Z0-9 ]/g, '')
+                .toLowerCase()
+                .concat(`_${Date.now()}.${fileType}`);
             const tempPath = path.join(path.join(__dirname, '..', '..', '..', 'public'), filePath);
 
             const response = await firstValueFrom(this.httpService.get(url, { responseType: 'stream' }));
@@ -45,7 +48,10 @@ export class DownloadService {
 
     async downloadPdf(prompt: string, fileName: string) {
         try {
-            const filePath = fileName.replace(/ /g, '_').toLowerCase().concat(`_${Date.now()}.pdf`);
+            const filePath = fileName
+                .replace(/[^a-zA-Z0-9 ]/g, '')
+                .toLowerCase()
+                .concat(`_${Date.now()}.pdf`);
             const tempPath = path.join(path.join(__dirname, '..', '..', '..', 'public'), filePath);
 
             await mdToPdf({ content: prompt }, { dest: tempPath });

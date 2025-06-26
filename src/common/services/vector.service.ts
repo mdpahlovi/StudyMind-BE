@@ -1,27 +1,15 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { Document } from '@langchain/core/documents';
+import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
 import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
 import { PineconeStore } from '@langchain/pinecone';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { PDFExtract } from 'pdf.js-extract';
-import * as pdf2pic from 'pdf2pic';
+import * as fs from 'fs';
+import * as path from 'path';
 import { GenAIService } from './gen-ai.service';
 import { SupabaseService } from './supabase.service';
-
-interface ProcessedContent {
-    text: string;
-    images: string[];
-    metadata: {
-        pageNumber: number;
-        contentType?: 'TEXT' | 'IMAGE' | 'MIXED';
-        hasFormulas?: boolean;
-        hasDiagrams?: boolean;
-        hasHandwriting?: boolean;
-    };
-}
 
 @Injectable()
 export class VectorService {
@@ -37,10 +25,10 @@ export class VectorService {
         private readonly genAIService: GenAIService,
         private readonly supabaseService: SupabaseService,
     ) {
-        this.initializePinecone();
+        this.initialize();
     }
 
-    private async initializePinecone() {
+    private async initialize() {
         try {
             this.pinecone = new Pinecone({
                 apiKey: this.configService.get<string>('pinecone.apiKey'),
@@ -63,6 +51,9 @@ export class VectorService {
                 separators: ['\n\n', '\n', '. ', ' ', ''],
             });
 
+            this.genAI = new GoogleGenerativeAI(this.configService.get<string>('gemini.apiKey'));
+            this.visionModel = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
             console.log('Pinecone initialized successfully');
         } catch (error) {
             console.error('Failed to initialize Pinecone', error);
@@ -70,103 +61,57 @@ export class VectorService {
         }
     }
 
-    async processPDFDocument(filePath: string, libraryItemId: number, userId: number) {
+    private async processPDF(filePath: string) {
         try {
-            const processedContent = await this.extractPDFContent(filePath);
-
-            console.log(processedContent);
-
-            const embeddingPromises = processedContent.map((content, index) =>
-                this.processPageContent(content, libraryItemId, userId, index),
-            );
-
-            const results = await Promise.allSettled(embeddingPromises);
-
-            const successCount = results.filter(r => r.status === 'fulfilled').length;
-
-            console.log(`PDF processing completed: ${successCount}/${results.length} pages processed successfully`);
-
-            return !!!successCount;
-        } catch (error) {
-            console.error('Failed to process PDF document', error);
-            throw new BadRequestException('Failed to process PDF document');
-        }
-    }
-
-    private async extractPDFContent(filePath: string): Promise<ProcessedContent[]> {
-        const processedPages: ProcessedContent[] = [];
-
-        try {
-            const pdfExtract = new PDFExtract();
-            const textData = await new Promise<any>((resolve, reject) => {
-                pdfExtract.extract(filePath, {}, (err, data) => {
-                    if (err) reject(err);
-                    else resolve(data);
-                });
-            });
-
-            const convert = pdf2pic.fromPath(filePath, {
-                density: 150,
-                saveFilename: 'page',
-                savePath: './temp',
-                format: 'png',
-                width: 2048,
-                height: 2048,
-            });
-
-            for (let i = 0; i < textData.pages.length; i++) {
-                const page = textData.pages[i];
-                const pageText = page.content.map((item: any) => item.str).join(' ');
-                const imageResult = await convert(i + 1, { responseType: 'base64' });
-                const imageBase64 = imageResult.base64;
-
-                const analysis = await this.genAIService.analyzeContents(imageBase64);
-
-                processedPages.push({
-                    text: pageText.trim(),
-                    images: [imageBase64],
-                    metadata: { pageNumber: i + 1, ...analysis },
-                });
+            if (!fs.existsSync(filePath)) {
+                throw new BadRequestException(`PDF file not found: ${filePath}`);
             }
 
-            return processedPages;
+            const pdfLoader = new PDFLoader(filePath, { splitPages: true });
+            const documents = await pdfLoader.load();
+            console.log(`Loaded ${documents.length} pages from PDF: ${filePath}`);
+
+            return documents
+                .filter(doc => doc.pageContent.trim().length > 0)
+                .map((doc, index) => {
+                    doc.metadata = {
+                        ...doc.metadata,
+                        fileName: path.basename(filePath),
+                        pageNumber: index + 1,
+                        loadedAt: new Date().toISOString(),
+                        contentLength: doc.pageContent.length,
+                    };
+                    return doc;
+                });
         } catch (error) {
-            console.error('PDF content extraction failed', error);
-            throw new BadRequestException('Failed to extract PDF content');
+            throw new BadRequestException(`Failed to load pdf: ${error.message}`);
         }
     }
 
-    private async processPageContent(content: ProcessedContent, libraryItemId: number, userId: number, pageIndex: number): Promise<void> {
-        const combinedText = [content.text].filter(Boolean).join('\n');
+    async processAndEmbedPDF(filePath: string, itemUid: string, userUid: string): Promise<string[]> {
+        try {
+            const documents = await this.processPDF(filePath);
+            if (documents.length === 0) {
+                throw new BadRequestException('No content found in pdf');
+            }
 
-        if (!combinedText.trim()) {
-            console.warn(`Page ${pageIndex + 1} has no extractable text`);
-            return;
-        }
+            const splitDocs = await this.textSplitter.splitDocuments(documents);
+            console.log(`Split into ${splitDocs.length} chunks`);
 
-        const chunks = await this.textSplitter.splitText(combinedText);
-
-        const documents = chunks.map((chunk, chunkIndex) => {
-            return new Document({
-                pageContent: chunk,
-                metadata: {
-                    libraryItemId,
-                    userId,
-                    pageNumber: content.metadata.pageNumber,
-                    chunkIndex,
-                    contentType: content.metadata.contentType,
-                    hasFormulas: content.metadata.hasFormulas,
-                    hasDiagrams: content.metadata.hasDiagrams,
-                    hasHandwriting: content.metadata.hasHandwriting,
-                    text: content.text,
-                    source: 'pdf',
-                    createdAt: new Date().toISOString(),
-                },
+            splitDocs.forEach((doc, index) => {
+                doc.metadata.userUid = userUid;
+                doc.metadata.itemUid = itemUid;
+                doc.metadata.chunkId = `${userUid}_${itemUid}_${index}`;
+                doc.metadata.chunkIndex = index;
+                doc.metadata.totalChunks = splitDocs.length;
             });
-        });
 
-        await this.vectorStore.addDocuments(documents);
+            const vectorIds = await this.vectorStore.addDocuments(splitDocs);
+            console.log(`Successfully embedded ${vectorIds.length} document chunks`);
 
-        console.log(`Page ${content.metadata.pageNumber} processed: ${chunks.length} chunks created`);
+            return vectorIds;
+        } catch (error) {
+            throw new BadRequestException(`Failed to embed pdf: ${error.message}`);
+        }
     }
 }

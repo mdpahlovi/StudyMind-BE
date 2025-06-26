@@ -18,7 +18,7 @@ export class SupabaseService {
     public storage = this.supabase.storage.from('studymind');
 
     async uploadFile(file: Express.Multer.File, fileType: string) {
-        const filePath = `${Date.now()}_${file.originalname.replace(/ /g, '_').toLowerCase()}`;
+        const filePath = `${Date.now()}_${file.originalname.replace(/[^a-zA-Z0-9 ]/g, '').toLowerCase()}`;
         const { data, error } = await this.supabase.storage.from('studymind').upload(filePath, file.buffer, {
             contentType: getMimeType(fileType),
         });
@@ -36,9 +36,9 @@ export class SupabaseService {
             throw new BadRequestException('Failed to download file');
         }
 
-        const tempFilePath = path.join(os.tmpdir(), `temp_${Date.now()}.pdf`);
-        fs.writeFileSync(tempFilePath, Buffer.from(await data.arrayBuffer()));
+        const tempPath = path.join(path.join(__dirname, '..', '..', '..', 'public'), path.basename(filePath));
+        fs.writeFileSync(tempPath, Buffer.from(await data.arrayBuffer()));
 
-        return tempFilePath;
+        return tempPath;
     }
 }

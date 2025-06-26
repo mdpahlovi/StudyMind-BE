@@ -37,34 +37,52 @@ export class GenAIService {
         }
     }
 
-    async analyzeContents(imageBase64: string) {
+    async analyzePageContent(text: string, ocrText: string) {
         try {
-            const AnalyzeContentSchema = z.object({
-                contentType: z.enum(['TEXT', 'IMAGE', 'MIXED']),
-                description: z.string(),
-                hasFormulas: z.boolean(),
-                hasDiagrams: z.boolean(),
-                hasHandwriting: z.boolean(),
-            });
-            const outputParser = OutputFixingParser.fromLLM(this.genAI, StructuredOutputParser.fromZodSchema(AnalyzeContentSchema));
+            const returnSchema = z.object({ content: z.string(), quality: z.enum(['high', 'medium', 'low']) });
+            const outputParser = OutputFixingParser.fromLLM(this.genAI, StructuredOutputParser.fromZodSchema(returnSchema));
 
             const prompt = new PromptTemplate({
-                template: `You are StudyMind AI, an educational assistant. Analyze the given base64 image and provide:
-                
-                1) A detailed description of the content.
-                2) Whether the content contains formulas.
-                3) Whether the content contains diagrams.
-                4) Whether the content contains handwritten text.
-                
-                IMAGE CONTENT: {image}`,
-                inputVariables: ['image'],
+                template: `
+                You are an expert text analyst. Analyze and merge the following text content from a PDF page:
+
+                PDF TEXT: {text}
+                OCR TEXT: {ocrText}
+
+                Rules for merging:
+                - If PDF text is longer than 50 characters and contains coherent sentences, prioritize it.
+                - If PDF text is short (less than 50 characters) or fragmented, prefer OCR text.
+                - From both text sources, identify and merge the best possible content.
+                - Fix common OCR errors like:
+                    - "0" → "O"
+                    - "1" → "l"
+                    - "Th1s" → "This"
+                    - "lndustry" → "Industry"
+                - Remove duplicates and use the clearer version when overlapping text is found.
+                - Remove unnecessary whitespace, special characters, and line breaks.
+                - Preserve paragraph structure wherever applicable.
+
+                Quality assessment:
+                - "high": Clear, well-formatted text with minimal errors.
+                - "medium": Some formatting issues or minor OCR errors but readable.
+                - "low": Poor quality with many errors or unclear structure.
+
+                Return ONLY a JSON object with:
+                - content: The merged and cleaned text.
+                - quality: One of "high", "medium", or "low".
+
+                {format_instructions}`,
+                inputVariables: ['text', 'ocrText'],
+                partialVariables: { format_instructions: outputParser.getFormatInstructions() },
             });
 
-            const response = await this.genAI.invoke([new HumanMessage(await prompt.format({ image: imageBase64 }))]);
+            const response = await this.genAI.invoke([new HumanMessage(await prompt.format({ text, ocrText }))]);
 
+            console.log('Analyze page content:', response.text);
             return await outputParser.parse(response.text);
         } catch (error) {
-            throw new HttpException('Failed to analyze content', HttpStatus.INTERNAL_SERVER_ERROR);
+            console.error('Analyze page content:', error);
+            throw new HttpException('Failed to analyze page content', HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -92,6 +110,7 @@ export class GenAIService {
             console.log('Contextual response:', response.text);
             return response.text;
         } catch (error) {
+            console.error('Contextual response:', error);
             throw new HttpException('Failed to generate contextual response', HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -117,6 +136,7 @@ export class GenAIService {
             console.log('Summary:', response.text);
             return response.text;
         } catch (error) {
+            console.error('Summary:', error);
             return new HttpException('Failed to summarize context', HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -184,6 +204,7 @@ export class GenAIService {
             console.log('Initial Decision', response.text);
             return await outputParser.parse(response.text);
         } catch (error) {
+            console.error('Initial decision:', error);
             throw new HttpException('Failed to generate initial decision', HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -268,10 +289,10 @@ export class GenAIService {
                 ),
             ]);
 
-            console.log('Content response', response.text);
+            console.log('Content creation', response.text);
             return await outputParser.parse(response.text);
         } catch (error) {
-            console.error(error);
+            console.error('Content creation:', error);
             throw new HttpException('Failed to generate content', HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -311,8 +332,10 @@ export class GenAIService {
                 ),
             ]);
 
+            console.log('Content analysis', response.text);
             return response.text;
         } catch (error) {
+            console.error('Content analysis:', error);
             throw new HttpException('Failed to analyze content', HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
