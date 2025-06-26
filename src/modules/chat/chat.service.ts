@@ -2,7 +2,7 @@ import { DownloadService } from '@/common/services/download.service';
 import { GenAIService } from '@/common/services/gen-ai.service';
 import { SupabaseService } from '@/common/services/supabase.service';
 import { DatabaseService } from '@/database/database.service';
-import { libraryItem, User } from '@/database/schemas';
+import { User } from '@/database/schemas';
 import { chatMessages, chatSessions } from '@/database/schemas/chat.schema';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray } from 'drizzle-orm';
@@ -84,8 +84,8 @@ export class ChatService {
             const currMessage = body.message[body.message.length - 1];
             const chatMessage = body.message;
 
-            const initialDecision = await this.genAIService.generateInitialDecision(chatMessage);
-            if (!initialDecision?.action) {
+            const response = await this.genAIService.generateGraphResponses(uid, chatMessage);
+            if (!response?.response) {
                 throw new BadRequestException('Please provide more specific instructions. Thank you.');
             }
 
@@ -95,8 +95,8 @@ export class ChatService {
                 .values({
                     uid: uid,
                     userId: user.id,
-                    title: initialDecision?.title || 'Unnamed Chat',
-                    description: initialDecision?.description || '',
+                    title: response?.session?.title,
+                    description: response?.session?.description,
                     lastMessage: currMessage.message,
                     lastMessageAt: new Date(),
                 })
@@ -110,105 +110,29 @@ export class ChatService {
                 .returning();
 
             // Insert current message
-            await tx.insert(chatMessages).values({
-                ...currMessage,
-                chatSessionId: chatSession[0].id,
-            });
-
-            if (!chatSession?.length || !chatMessage?.length) {
-                throw new NotFoundException('Chat session or message not found. Please try again.');
-            }
-
-            let response = '';
-            if (initialDecision.action === 'CHAT') {
-                response = await this.genAIService.generateContextualResponse(chatMessage);
-            }
-            if (initialDecision.action === 'READ') {
-                // response = await this.genAIService.generateContentAnalysis(chatMessage);
-            }
-            if (initialDecision.action === 'CREATE') {
-                let references = [];
-
-                // Get reference items
-                if (initialDecision?.references?.length) {
-                    references = await tx
-                        .select()
-                        .from(libraryItem)
-                        .where(
-                            inArray(
-                                libraryItem.uid,
-                                initialDecision.references.map(ref => ref.uid),
-                            ),
-                        );
-                }
-
-                // Content generation prompt
-                const createResponse = await this.genAIService.generateContentCreation(chatMessage, references);
-                if (!createResponse?.name || !createResponse?.type) {
-                    throw new BadRequestException('Please provide more specific instructions. What do you want to create?');
-                }
-                if (['DOCUMENT', 'AUDIO', 'VIDEO', 'IMAGE'].includes(createResponse?.type) && !createResponse?.prompt) {
-                    throw new BadRequestException('Please provide more specific instructions. What do you want to create?');
-                }
-
-                let metadata = {};
-                if (createResponse?.type === 'DOCUMENT') {
-                    metadata = await this.downloadService.downloadPdf(createResponse.prompt, createResponse.name);
-                } else if (createResponse?.type === 'AUDIO') {
-                    metadata = await this.downloadService.downloadFile(
-                        `https://text.pollinations.ai/${createResponse.prompt}?model=openai-audio&voice=nova`,
-                        createResponse.name,
-                        createResponse?.metadata?.fileType || 'mp3',
-                    );
-                } else if (createResponse?.type === 'VIDEO') {
-                } else if (createResponse?.type === 'IMAGE') {
-                    const resolution = createResponse?.metadata?.resolution?.split('x');
-                    const width = resolution?.length === 2 ? resolution[0] : '1024';
-                    const height = resolution?.length === 2 ? resolution[1] : '1024';
-                    metadata = await this.downloadService.downloadFile(
-                        `https://image.pollinations.ai/prompt/${createResponse.prompt}?width=${width}&height=${height}`,
-                        createResponse.name,
-                        createResponse?.metadata?.fileType || 'png',
-                    );
-                }
-
-                const createdItem = await tx
-                    .insert(libraryItem)
-                    .values({
-                        name: createResponse.name,
-                        type: createResponse.type,
-                        parentId: createResponse?.parentId || null,
-                        userId: user.id,
-                        metadata: { ...(createResponse?.metadata || {}), ...metadata },
-                    })
-                    .returning();
-
-                if (Array.isArray(createdItem) && createdItem?.length) {
-                    response = `An item has been created successfully in your library. click here to view.\n\n@created {uid: '${createdItem[0].uid}', name: '${createdItem[0].name}', type: '${createdItem[0].type}'}`;
-                } else {
-                    throw new BadRequestException('Failed to create item. Please try again later.');
-                }
-            }
-
-            if (response) {
-                const message = await tx
-                    .insert(chatMessages)
-                    .values({
+            const newMessages = await tx
+                .insert(chatMessages)
+                .values([
+                    {
+                        ...currMessage,
+                        chatSessionId: chatSession[0].id,
+                    },
+                    {
                         role: 'ASSISTANT',
                         chatSessionId: chatSession[0].id,
-                        message: response,
-                    })
-                    .returning();
+                        message: response.response,
+                    },
+                ])
+                .returning();
 
+            if (newMessages?.length) {
                 return {
-                    message: 'Chat session requested successfully',
+                    message: 'Chat session created successfully',
                     data: {
                         session: chatSession[0],
-                        message: message[0],
+                        message: newMessages[1],
                     },
                 };
-            } else {
-                throw new BadRequestException('Failed to generate response. Please try again later.');
             }
         });
     }
