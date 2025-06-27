@@ -9,13 +9,12 @@ import { ErrorInterceptor } from './common/interceptors/error.interceptor';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
 async function bootstrap() {
-    const app = await NestFactory.create(AppModule, {
-        logger: new ConsoleLogger({
-            logLevels: ['log', 'error', 'warn', 'debug', 'verbose'],
-            prefix: 'StudyMind',
-            timestamp: true,
-        }),
+    const logger = new ConsoleLogger({
+        logLevels: ['log', 'error', 'warn', 'debug', 'verbose'],
+        prefix: 'StudyMind',
+        timestamp: true,
     });
+    const app = await NestFactory.create(AppModule, { logger });
     const configService = app.get(ConfigService);
 
     // Security
@@ -70,8 +69,8 @@ async function bootstrap() {
     const port = configService.get<number>('port');
     await app.listen(port);
 
-    console.log(`🚀 Application is running on: http://localhost:${port}/${apiPrefix}`);
-    console.log(`📚 API Documentation: http://localhost:${port}/docs`);
+    logger.log(`Application is running on: http://localhost:${port}/${apiPrefix}`, 'Main');
+    logger.log(`API Documentation: http://localhost:${port}/docs`, 'Main');
 }
 
 bootstrap();

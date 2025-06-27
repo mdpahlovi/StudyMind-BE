@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext, HttpException, HttpStatus, Injectable, NestInterceptor } from '@nestjs/common';
+import { CallHandler, ExecutionContext, HttpException, HttpStatus, Injectable, Logger, NestInterceptor } from '@nestjs/common';
 import * as moment from 'moment';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
@@ -14,6 +14,7 @@ export interface ErrorResponse {
 
 @Injectable()
 export class ErrorInterceptor implements NestInterceptor {
+    private readonly logger = new Logger(ErrorInterceptor.name);
     intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
         const request = context.switchToHttp().getRequest();
 
@@ -32,10 +33,10 @@ export class ErrorInterceptor implements NestInterceptor {
                     path: request.url,
                 };
 
-                console.log(
-                    `[StudyMind] - ${moment().format('DD/MM/YYYY, hh:mm A')}     ${statusCode} ${context.switchToHttp().getRequest().method} {${context.switchToHttp().getRequest().url}}`,
+                this.logger.error(
+                    `[${statusCode}] ${context.switchToHttp().getRequest().method} ${context.switchToHttp().getRequest().url}`,
+                    message,
                 );
-                console.error(err);
 
                 return throwError(() => new HttpException(errorResponse, statusCode));
             }),

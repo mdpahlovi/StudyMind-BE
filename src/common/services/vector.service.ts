@@ -29,36 +29,29 @@ export class VectorService {
     }
 
     private async initialize() {
-        try {
-            this.pinecone = new Pinecone({
-                apiKey: this.configService.get<string>('pinecone.apiKey'),
-            });
+        this.pinecone = new Pinecone({
+            apiKey: this.configService.get<string>('pinecone.apiKey'),
+        });
 
-            this.embeddings = new GoogleGenerativeAIEmbeddings({
-                apiKey: this.configService.get<string>('gemini.apiKey'),
-                modelName: 'text-embedding-004',
-            });
+        this.embeddings = new GoogleGenerativeAIEmbeddings({
+            apiKey: this.configService.get<string>('gemini.apiKey'),
+            modelName: 'text-embedding-004',
+        });
 
-            const index = this.pinecone.Index(this.configService.get<string>('pinecone.index'));
+        const index = this.pinecone.Index(this.configService.get<string>('pinecone.index'));
 
-            this.vectorStore = new PineconeStore(this.embeddings, {
-                pineconeIndex: index,
-            });
+        this.vectorStore = new PineconeStore(this.embeddings, {
+            pineconeIndex: index,
+        });
 
-            this.textSplitter = new RecursiveCharacterTextSplitter({
-                chunkSize: 1000,
-                chunkOverlap: 200,
-                separators: ['\n\n', '\n', '. ', ' ', ''],
-            });
+        this.textSplitter = new RecursiveCharacterTextSplitter({
+            chunkSize: 1000,
+            chunkOverlap: 200,
+            separators: ['\n\n', '\n', '. ', ' ', ''],
+        });
 
-            this.genAI = new GoogleGenerativeAI(this.configService.get<string>('gemini.apiKey'));
-            this.visionModel = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
-            console.log('Pinecone initialized successfully');
-        } catch (error) {
-            console.error('Failed to initialize Pinecone', error);
-            throw error;
-        }
+        this.genAI = new GoogleGenerativeAI(this.configService.get<string>('gemini.apiKey'));
+        this.visionModel = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     }
 
     private async processPDF(filePath: string) {

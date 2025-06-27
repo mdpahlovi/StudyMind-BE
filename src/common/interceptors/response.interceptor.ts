@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
 import * as moment from 'moment';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -12,10 +12,9 @@ export interface Response<T> {
 
 @Injectable()
 export class ResponseInterceptor<T> implements NestInterceptor<T, Response<T>> {
+    private readonly logger = new Logger(ResponseInterceptor.name);
     intercept(context: ExecutionContext, next: CallHandler): Observable<Response<T>> {
-        console.log(
-            `[StudyMind] - ${moment().format('DD/MM/YYYY, hh:mm A')}     ${200} ${context.switchToHttp().getRequest().method} {${context.switchToHttp().getRequest().url}}`,
-        );
+        this.logger.debug(`[${200}] ${context.switchToHttp().getRequest().method} ${context.switchToHttp().getRequest().url}`);
 
         return next.handle().pipe(
             map(data => ({
