@@ -2,19 +2,20 @@ import { DatabaseService } from '@/database/database.service';
 import { LibraryItem, libraryItem, LibraryItemType } from '@/database/schemas';
 import { MessageDto } from '@/modules/chat/chat.dto';
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { ChatPromptTemplate, PromptTemplate } from '@langchain/core/prompts';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { ChatOpenAI } from '@langchain/openai';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { inArray } from 'drizzle-orm';
+import { OutputFixingParser, StructuredOutputParser } from 'langchain/output_parsers';
 import { z } from 'zod';
 import { DownloadService } from './download.service';
 
 type MessageType = 'CONTEXTUAL_CHAT' | 'CREATE_CONTENT' | 'ANALYZE_CONTENT';
 
-const FolderIcon: [string, ...string[]] = [
+const FolderIcon = [
     'book',
     'folder',
     'document',
@@ -31,7 +32,7 @@ const FolderIcon: [string, ...string[]] = [
     'music',
     'sports',
     'computer',
-];
+] as const;
 
 const StudyMindState = Annotation.Root({
     session: Annotation<{ uid: string; title: string; description: string }>(),
@@ -55,6 +56,7 @@ export class GenAIService {
     private genAI: ChatGoogleGenerativeAI;
     private gptAi: ChatOpenAI;
     private graph;
+    private dbTxn;
 
     constructor(
         private readonly configService: ConfigService,
@@ -125,7 +127,7 @@ export class GenAIService {
                 (overview, explain, discuss, understand, help with)
                 2. CREATE_CONTENT: When user wants to create new content (with/without @mention) using creation keywords 
                 (create, make, generate, turn into, convert, build, add)
-                3. CONTEXTUAL_CHAT: General discussions/Q&A without content mentions
+                3. CONTEXTUAL_CHAT: General discussions/Q&A without content creation or analysis
                 
                 Decision Steps:
                 a) If @mention + creation keywords → CREATE_CONTENT
@@ -147,7 +149,11 @@ export class GenAIService {
                 }),
             );
 
-            this.logger.debug('Identify User Intent:', response);
+            if (!response.title || !response.description || !response.messageType) {
+                throw new BadRequestException('Failed to identify user intent');
+            }
+
+            console.log('[Node] Identify User Intent');
             return {
                 ...state,
                 session: {
@@ -163,76 +169,96 @@ export class GenAIService {
         }
     }
     private async resolveMentions(state: typeof StudyMindState.State) {
-        const ResolveMentionSchema = z.object({
-            mentions: z.array(z.object({ uid: z.string(), needContent: z.boolean(), whatNeed: z.string() })),
-            sessions: z.array(z.object({ uid: z.string(), needContent: z.boolean(), whatNeed: z.string() })),
-        });
+        try {
+            const mentionRegex = /@mention\s*{([^}]+)}/g;
+            const createdRegex = /@created\s*{([^}]+)}/g;
 
-        const structureModel = this.genAI.withStructuredOutput(ResolveMentionSchema);
-        const promptTemplate = ChatPromptTemplate.fromTemplate(
-            `You are StudyMind AI, an educational assistant. User wants to {intent} content. Extract required @mention {{...}} from user's message and @created {{...}} from the previous chat summary.
+            const mentionMatches = [...state.userMessage.matchAll(mentionRegex)];
+            const createdMatches = state.prevMessage.map(msg => [...msg.message.matchAll(createdRegex)]).flat();
+
+            if (!mentionMatches.length && !createdMatches.length) {
+                console.log('[Node] Resolve Mentions');
+                return state;
+            }
+
+            const ResolveMentionSchema = z.object({
+                mentions: z.array(z.object({ uid: z.string(), needContent: z.boolean(), whatNeed: z.string() })),
+                sessions: z.array(z.object({ uid: z.string(), needContent: z.boolean(), whatNeed: z.string() })),
+            });
+
+            const structureModel = this.genAI.withStructuredOutput(ResolveMentionSchema);
+            const promptTemplate = ChatPromptTemplate.fromTemplate(
+                `You are StudyMind AI, an educational assistant. User wants to {intent} content. Extract required @mention {{...}} from user's message and @created {{...}} from the previous chat summary.
         
-            Previous Chat Summary: {prevSummary}
-            User Message: {userMessage}
-            
-            IMPORTANT RULES:
-            1. If multiple similar @mention or @created items exist and their purposes are similar, take only the LAST/MOST RECENT one
-            2. For each item, determine if you need the actual content or just for reference
-            3. Specify exactly what is needed from the content
-            
-            Context Examples:
-            1) Previous Chat Summary: "I created a folder 'Mathematics' @created {{uid: '...', name: 'Mathematics', type: 'FOLDER'}}"
-            User Message: "Create a document about calculus derivatives"
-            → sessions: [{{uid: '...', needContent: false, whatNeed: 'to use as parent folder'}}]
-            
-            2) User Message: "@mention {{uid: '...', name: 'Calculus Chapter 3', type: 'DOCUMENT'}} create flashcards from this"
-            → mentions: [{{uid: '...', needContent: true, whatNeed: 'extract key concepts and definitions for flashcard creation'}}]
-            
-            3) User Message: "@mention {{uid: '...', name: 'Physics Notes', type: 'DOCUMENT'}} explain the second paragraph"
-            → mentions: [{{uid: '...', needContent: true, whatNeed: 'find and explain the second paragraph content'}}]
-            
-            4) Previous Chat Summary: "Created folder @created {{uid: '...', name: 'Math', type: 'FOLDER'}} then created another folder @created {{uid: '...', name: 'Advanced Math', type: 'FOLDER'}}"
-            User Message: "Create a document about calculus"
-            → sessions: [{{uid: '...', needContent: false, whatNeed: 'to use as parent folder'}}] // Only the LAST folder
-            
-            5) User Message: "@mention {{uid: '...', name: 'Biology Chapter 1', type: 'DOCUMENT'}} @mention {{uid: '...', name: 'Biology Chapter 2', type: 'DOCUMENT'}} create summary"
-            → mentions: [{{uid: '...', needContent: true, whatNeed: 'extract main concepts for summary creation'}}, {{uid: '...', needContent: true, whatNeed: 'extract main concepts for summary creation'}}] // Both for create summary
-            
-            6) Previous Chat Summary: "Created flashcards @created {{uid: '...', name: 'Algebra Basics', type: 'FLASHCARD'}}"
-            User Message: "Make similar flashcards for geometry"
-            → sessions: [{{uid: '...', needContent: true, whatNeed: 'use as template structure and format reference'}}]
-            
-            needContent Guidelines:
-            - true: When you need to READ/ANALYZE the actual content (text, data, structure)
-            - false: When you only need it as a reference for parent/sibling
-            
-            whatNeed Examples:
-            - needContent: true → "extract key formulas and concepts", "find specific paragraph about...", "analyze writing style and tone", "get content structure and topics"
-            - needContent: false → "to use as parent folder", "to use as sibling location"
-            
-            Please be intelligent think twice before responding.
-        `,
-        );
+                Previous Chat Summary: {prevSummary}
+                User Message: {userMessage}
+                
+                IMPORTANT RULES:
+                1. If multiple similar @mention or @created items exist and their purposes are similar, take only the LAST/MOST RECENT one
+                2. For each item, determine if you need the actual content or just for reference
+                3. Specify exactly what is needed from the content
+                
+                Context Examples:
+                1) Previous Chat Summary: "I created a folder 'Mathematics' @created {{uid: '...', name: 'Mathematics', type: 'FOLDER'}}"
+                User Message: "Create a document about calculus derivatives"
+                → sessions: [{{uid: '...', needContent: false, whatNeed: 'to use as parent folder'}}]
+                
+                2) User Message: "@mention {{uid: '...', name: 'Calculus Chapter 3', type: 'DOCUMENT'}} create flashcards from this"
+                → mentions: [{{uid: '...', needContent: true, whatNeed: 'extract key concepts and definitions for flashcard creation'}}]
+                
+                3) User Message: "@mention {{uid: '...', name: 'Physics Notes', type: 'DOCUMENT'}} explain the second paragraph"
+                → mentions: [{{uid: '...', needContent: true, whatNeed: 'find and explain the second paragraph content'}}]
+                
+                4) Previous Chat Summary: "Created folder @created {{uid: '...', name: 'Math', type: 'FOLDER'}} then created another folder @created {{uid: '...', name: 'Advanced Math', type: 'FOLDER'}}"
+                User Message: "Create a document about calculus"
+                → sessions: [{{uid: '...', needContent: false, whatNeed: 'to use as parent folder'}}] // Only the LAST folder
+                
+                5) User Message: "@mention {{uid: '...', name: 'Biology Chapter 1', type: 'DOCUMENT'}} @mention {{uid: '...', name: 'Biology Chapter 2', type: 'DOCUMENT'}} create summary"
+                → mentions: [{{uid: '...', needContent: true, whatNeed: 'extract main concepts for summary creation'}}, {{uid: '...', needContent: true, whatNeed: 'extract main concepts for summary creation'}}] // Both for create summary
+                
+                6) Previous Chat Summary: "Created flashcards @created {{uid: '...', name: 'Algebra Basics', type: 'FLASHCARD'}}"
+                User Message: "Make similar flashcards for geometry"
+                → sessions: [{{uid: '...', needContent: true, whatNeed: 'use as template structure and format reference'}}]
+                
+                needContent Guidelines:
+                - true: When you need to READ/ANALYZE the actual content (text, data, structure)
+                - false: When you only need it as a reference for parent/sibling
+                
+                whatNeed Examples:
+                - needContent: true → "extract key formulas and concepts", "find specific paragraph about...", "analyze writing style and tone", "get content structure and topics"
+                - needContent: false → "to use as parent folder", "to use as sibling location"
+                
+                Please be intelligent think twice before responding.
+            `,
+            );
 
-        const response = await structureModel.invoke(
-            await promptTemplate.formatMessages({
-                prevSummary: state.prevSummary,
-                userMessage: state.userMessage,
-                intent: state.messageType.split('_')[0].toLowerCase(),
-            }),
-        );
+            const response = await structureModel.invoke(
+                await promptTemplate.formatMessages({
+                    prevSummary: state.prevSummary,
+                    userMessage: state.userMessage,
+                    intent: state.messageType.split('_')[0].toLowerCase(),
+                }),
+            );
 
-        if (!response?.mentions?.length && !response?.sessions?.length) return state;
+            if (!response?.mentions?.length && !response?.sessions?.length) {
+                console.log('[Node] Resolve Mention');
+                return state;
+            }
 
-        const db = this.databaseService.database;
+            const db = this.dbTxn ? this.dbTxn : this.databaseService.database;
 
-        const itemsUid = [...response.mentions, ...response.sessions].map(item => item.uid);
-        const itemData = await db.select().from(libraryItem).where(inArray(libraryItem.uid, itemsUid));
+            const itemsUid = [...response.mentions, ...response.sessions].map(item => item.uid);
+            const itemData = await db.select().from(libraryItem).where(inArray(libraryItem.uid, itemsUid));
 
-        state.mentionContext = await this.putInState(response.mentions, itemData as any);
-        state.sessionContext = await this.putInState(response.sessions, itemData as any);
+            state.mentionContext = await this.putInState(response.mentions, itemData as any);
+            state.sessionContext = await this.putInState(response.sessions, itemData as any);
 
-        return state;
+            console.log('[Node] Resolve Mention');
+            return state;
+        } catch (error) {
+            this.logger.error('Resolve Mention: ', error);
+            throw new BadRequestException('Failed to resolve mentions');
+        }
     }
     private async planContentQueue(state: typeof StudyMindState.State) {
         try {
@@ -260,9 +286,11 @@ export class GenAIService {
                 ),
             });
 
-            const structureModel = this.genAI.withStructuredOutput(ContentPlanSchema);
-            const promptTemplate = ChatPromptTemplate.fromTemplate(`
-                You are StudyMind AI, an educational assistant. Your task is to generate appropriate study content based on the user's request, adhering strictly to the provided schema and rules.
+            const outputParser = OutputFixingParser.fromLLM(this.genAI, StructuredOutputParser.fromZodSchema(ContentPlanSchema));
+
+            const promptTemplate = new PromptTemplate({
+                template: `
+                You are StudyMind AI, an educational assistant. Your task is to generate appropriate study content based on the user's request. Generate only one content unless the user's intent clearly indicates a request for multiple contents.
 
                 Previous Chat Summary: {prevSummary}
                 User Message: {userMessage}
@@ -279,9 +307,10 @@ export class GenAIService {
                 - Use the most appropriate type for the content (from the allowed enum, e.g., 'NOTE'), based on the user's request.
 
                 PARENT ID RULES:
-                1. If the user explicitly requests creation *inside* a specific folder (e.g., "create a note in @mention {{...}}"), use that folder's ID as parentId.
-                2. If the user mentions existing content (e.g., "summarize @mention {{...}}"), use the parentId of the mentioned content.
-                3. If no explicit folder mention or a general request (e.g., "create a new flashcard set"), set parentId to null.
+                1. If the user explicitly request creation *inside* an existing folder from references, set parentId to that folder's id.
+                2. If the content related to the existing content from references, set parentId to that content's parentId.
+                3. If the user requests a nested structure where the parent hasn't been created yet, set root parentId by following the rules 1, 2 or null and set child parentId to -1.
+                4. If none of the above, set parentId to null.
 
                 CONTENT TYPE SPECIFIC RULES:
                 - FOLDER: Requires metadata.color (hex code, e.g., "#A8C686") and metadata.icon (from allowed enum, e.g., "book").
@@ -298,28 +327,34 @@ export class GenAIService {
                 - VIDEO: Set 'prompt' to a clear and engaging video script for visual narration (max 100 words).
                 - IMAGE: Set 'prompt' to a concise and specific image description (max 20 words).
 
-                Do not include the 'prompt' field for other types.
-                Generate content based on the user's request following these rules exactly.`);
+                Do not include the 'prompt' field for other types.`,
+                inputVariables: ['prevSummary', 'userMessage', 'references'],
+            });
 
-            const response = await structureModel.invoke(
-                await promptTemplate.formatMessages({
-                    prevSummary: state.prevSummary,
-                    userMessage: state.userMessage,
-                    references: [...state.mentionContext, ...state.sessionContext],
-                }),
-            );
+            const response = await this.genAI.invoke([
+                new HumanMessage(
+                    await promptTemplate.format({
+                        prevSummary: state.prevSummary,
+                        userMessage: state.userMessage,
+                        references: [...state.mentionContext, ...state.sessionContext],
+                    }),
+                ),
+            ]);
 
-            if (!response.contentQueue || response.contentQueue.length === 0) {
+            const parsedResponse = await outputParser.parse(response.text);
+
+            if (!parsedResponse.contentQueue || parsedResponse.contentQueue.length === 0) {
                 throw new BadRequestException('Failed to plan content creation');
             }
 
+            console.log('[Node] Plan Content Queue');
             return {
                 ...state,
-                contentCreationQueue: response.contentQueue,
+                contentCreationQueue: parsedResponse.contentQueue,
                 currentCreationIndex: 0,
             };
         } catch (error) {
-            this.logger.error('Plan Content Queue Error:', error);
+            this.logger.error('Plan Content Queue: ', error);
             throw new BadRequestException('Failed to plan content creation');
         }
     }
@@ -357,7 +392,7 @@ export class GenAIService {
                 );
             }
 
-            const db = this.databaseService.database;
+            const db = this.dbTxn ? this.dbTxn : this.databaseService.database;
 
             const createdItem = await db
                 .insert(libraryItem)
@@ -375,13 +410,14 @@ export class GenAIService {
                 throw new BadRequestException('Failed to create content');
             }
 
+            console.log('[Node] Create One Content');
             return {
                 ...state,
                 currentCreationIndex: state.currentCreationIndex + 1,
-                createdContent: [...state.createdContent, ...(createdItem as LibraryItem[])],
+                createdContent: [...state.createdContent, createdItem[0]],
             };
         } catch (error) {
-            this.logger.error('Create One Content Error:', error);
+            this.logger.error('Create One Content: ', error);
             throw new BadRequestException('Failed to create content');
         }
     }
@@ -415,24 +451,25 @@ export class GenAIService {
                 throw new BadRequestException('Failed to analyze content');
             }
 
-            this.logger.debug('Content Analysis Response:', response.text);
+            console.log('[Node] Analyze Content');
             return { ...state, response: response.text };
         } catch (error) {
-            this.logger.error('Analyze Content Error:', error);
+            this.logger.error('Analyze Content: ', error);
             throw new BadRequestException('Failed to analyze content');
         }
     }
     private async contextualChat(state: typeof StudyMindState.State) {
-        const prevMessages = state.prevMessage.map(message => {
-            switch (message.role) {
-                case 'USER':
-                    return new HumanMessage(message.message);
-                case 'ASSISTANT':
-                    return new AIMessage(message.message);
-            }
-        });
+        try {
+            const prevMessages = state.prevMessage.map(message => {
+                switch (message.role) {
+                    case 'USER':
+                        return new HumanMessage(message.message);
+                    case 'ASSISTANT':
+                        return new AIMessage(message.message);
+                }
+            });
 
-        const systemPrompt = new SystemMessage(`
+            const systemPrompt = new SystemMessage(`
             You are StudyMind AI, an educational assistant. Provide helpful, educational responses that:
             - Build upon previous conversation context
             - Maintain educational focus
@@ -440,68 +477,83 @@ export class GenAIService {
             - Guide learning progression naturally
             - Offer to create study materials when appropriate`);
 
-        const response = await this.genAI.invoke([systemPrompt, ...prevMessages, new HumanMessage(state.userMessage)]);
+            const response = await this.genAI.invoke([systemPrompt, ...prevMessages, new HumanMessage(state.userMessage)]);
 
-        if (!response.text) {
+            if (!response.text) {
+                throw new BadRequestException('Failed to generate user reply');
+            }
+
+            console.log('[Node] Contextual Chat');
+            return { ...state, response: response.text };
+        } catch (error) {
+            this.logger.error('Contextual Chat: ', error);
             throw new BadRequestException('Failed to generate user reply');
         }
-
-        this.logger.debug('Contextual Response:', response.text);
-        return { ...state, response: response.text };
     }
     private async generateUserReply(state: typeof StudyMindState.State) {
         try {
             if (state.messageType === 'CONTEXTUAL_CHAT') {
+                console.log('[Node] Generate User Reply');
                 return state;
             } else if (state.messageType === 'CREATE_CONTENT') {
-                const createdContentSummary = state.createdContent
-                    .map(content => `@created {uid: '${content.uid}', name: '${content.name}', type: '${content.type}'}`)
-                    .join(' ');
+                const promptTemplate = ChatPromptTemplate.fromTemplate(`
+                    You are StudyMind AI. You successfully created content for the user.
 
-                const successPrompt = `
-                    You are StudyMind AI. The user requested content creation and you successfully created the following items:
-                    ${state.createdContent}
-                    
-                    Generate a friendly, encouraging success message that:
+                    User Message: {userMessage}
+                    Created Content: {createdContent}
+
+                    Generate a short, friendly success message that:
                     - Confirms what was created
-                    - Briefly describes each item's purpose
-                    - Suggests next steps or ways to use the content
-                    - Maintains an educational, supportive tone
-                    
-                    User's original request: ${state.userMessage}
-                    Response should contain created content in the following format: @created ${JSON.stringify(state.createdContent[0])}
-                `;
+                    - Encourages continued learning
+                    - Ends with "Click here to view ↓"
 
-                const response = await this.genAI.invoke([new SystemMessage(successPrompt)]);
+                    Keep it under 50 words and enthusiastic.
+                `);
 
-                if (!response.text) {
-                    throw new BadRequestException('Failed to generate success message');
-                }
+                const response = await this.genAI.invoke(
+                    await promptTemplate.formatMessages({
+                        createdContent: state.createdContent.map(item => `- ${item.name} (${item.type})`).join('\n'),
+                        userMessage: state.userMessage,
+                    }),
+                );
 
-                this.logger.debug('Content Creation Success Response:', response.text);
-                return { ...state, response: `${response.text}\n\n${createdContentSummary}` };
+                console.log('[Node] Generate User Reply');
+                return {
+                    ...state,
+                    response: `${response.text}\n${state.createdContent
+                        .map(content => {
+                            return `@created ${JSON.stringify({ ...content, metadata: null })}`;
+                        })
+                        .join('\n')}`,
+                };
             } else if (state.messageType === 'ANALYZE_CONTENT') {
+                console.log('[Node] Generate User Reply');
                 return state;
             }
         } catch (error) {
-            this.logger.error('Generate Reply Error:', error);
+            this.logger.error('Generate User Reply: ', error);
             throw new BadRequestException('Failed to generate user reply');
         }
     }
     private routeAfterRefs(state: typeof StudyMindState.State) {
+        console.log('[ROUTE] Route After Refs');
         return state.messageType;
     }
     private routeAfterContext(state: typeof StudyMindState.State) {
+        console.log('[ROUTE] Route After Context');
         return state.messageType;
     }
     private routeContentProgress(state: typeof StudyMindState.State) {
         const { contentCreationQueue, currentCreationIndex } = state;
+
+        console.log('[ROUTE] Route Content Progress');
         return currentCreationIndex < contentCreationQueue.length ? 'CONTINUE' : 'COMPLETE';
     }
 
     // 🎯 Main entrypoint
-    async generateGraphResponses(sessionUid: string, chatMessages: MessageDto[]): Promise<typeof StudyMindState.State> {
+    async generateGraphResponses(sessionUid: string, chatMessages: MessageDto[], dbTxn): Promise<typeof StudyMindState.State> {
         try {
+            this.dbTxn = dbTxn;
             const initialState: typeof StudyMindState.State = {
                 session: { uid: sessionUid, title: '', description: '' },
                 userMessage: chatMessages[chatMessages.length - 1].message,
@@ -519,10 +571,10 @@ export class GenAIService {
 
             const result = await this.graph.invoke(initialState);
 
-            this.logger.debug('Graph Execution: ', result);
+            console.log('[Node] Graph Execution');
             return result;
         } catch (error) {
-            this.logger.error('Graph Execution:', error);
+            this.logger.error('Graph Execution: ', error);
             throw new BadRequestException('Failed to generate response');
         }
     }
@@ -558,7 +610,7 @@ export class GenAIService {
             new HumanMessage(`Conversation:\n${recentConversation}`),
         ]);
 
-        this.logger.debug('Summary: ', response.text);
+        console.log('Summary');
         return response.text;
     }
 

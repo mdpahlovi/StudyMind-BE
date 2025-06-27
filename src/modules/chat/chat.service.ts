@@ -84,7 +84,7 @@ export class ChatService {
             const currMessage = body.message[body.message.length - 1];
             const chatMessage = body.message;
 
-            const response = await this.genAIService.generateGraphResponses(uid, chatMessage);
+            const response = await this.genAIService.generateGraphResponses(uid, chatMessage, tx);
             if (!response?.response) {
                 throw new BadRequestException('Please provide more specific instructions. Thank you.');
             }

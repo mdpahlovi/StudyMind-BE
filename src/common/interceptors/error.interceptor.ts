@@ -35,7 +35,7 @@ export class ErrorInterceptor implements NestInterceptor {
 
                 this.logger.error(
                     `[${statusCode}] ${context.switchToHttp().getRequest().method} ${context.switchToHttp().getRequest().url}`,
-                    message,
+                    err,
                 );
 
                 return throwError(() => new HttpException(errorResponse, statusCode));
