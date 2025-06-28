@@ -84,9 +84,9 @@ export class ChatService {
             const currMessage = body.message[body.message.length - 1];
             const chatMessage = body.message;
 
-            const response = await this.genAIService.generateGraphResponses(uid, chatMessage, tx);
+            const response = await this.genAIService.generateGraphResponses(user.id, uid, chatMessage, tx);
             if (!response?.response) {
-                throw new BadRequestException('Please provide more specific instructions. Thank you.');
+                throw new BadRequestException('Please provide more specific instructions. Thank you');
             }
 
             // Create or update chat session

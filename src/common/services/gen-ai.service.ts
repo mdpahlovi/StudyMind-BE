@@ -35,6 +35,7 @@ const FolderIcon = [
 ] as const;
 
 const StudyMindState = Annotation.Root({
+    userId: Annotation<number>(),
     session: Annotation<{ uid: string; title: string; description: string }>(),
     userMessage: Annotation<string>(),
     prevMessage: Annotation<Array<MessageDto>>(),
@@ -82,6 +83,7 @@ export class GenAIService {
             .addNode('identifyUserIntent', this.identifyUserIntent.bind(this))
             .addNode('resolveMentions', this.resolveMentions.bind(this))
             .addNode('planContentQueue', this.planContentQueue.bind(this))
+            .addNode('createContentQueue', this.createContentQueue.bind(this))
             .addNode('createOneContent', this.createOneContent.bind(this))
             .addNode('checkCreationProcess', this.checkCreationProcess.bind(this))
             .addNode('analyzeContent', this.analyzeContent.bind(this))
@@ -99,7 +101,8 @@ export class GenAIService {
                 CREATE_CONTENT: 'planContentQueue',
                 ANALYZE_CONTENT: 'analyzeContent',
             })
-            .addEdge('planContentQueue', 'createOneContent')
+            .addEdge('planContentQueue', 'createContentQueue')
+            .addEdge('createContentQueue', 'createOneContent')
             .addEdge('createOneContent', 'checkCreationProcess')
             .addConditionalEdges('checkCreationProcess', this.routeContentProgress.bind(this), {
                 CONTINUE: 'createOneContent',
@@ -153,7 +156,7 @@ export class GenAIService {
                 throw new BadRequestException('Failed to identify user intent');
             }
 
-            console.log('[Node] Identify User Intent');
+            console.log(`[Node] Identify User Intent: [${response.messageType}]`);
             return {
                 ...state,
                 session: {
@@ -177,7 +180,7 @@ export class GenAIService {
             const createdMatches = state.prevMessage.map(msg => [...msg.message.matchAll(createdRegex)]).flat();
 
             if (!mentionMatches.length && !createdMatches.length) {
-                console.log('[Node] Resolve Mentions');
+                console.log('[Node] Resolve Mentions: [No Mentions Found]');
                 return state;
             }
 
@@ -241,7 +244,7 @@ export class GenAIService {
             );
 
             if (!response?.mentions?.length && !response?.sessions?.length) {
-                console.log('[Node] Resolve Mention');
+                console.log('[Node] Resolve Mention: [No Valid Mentions Found]');
                 return state;
             }
 
@@ -253,7 +256,7 @@ export class GenAIService {
             state.mentionContext = await this.putInState(response.mentions, itemData as any);
             state.sessionContext = await this.putInState(response.sessions, itemData as any);
 
-            console.log('[Node] Resolve Mention');
+            console.log(`[Node] Resolve Mention: [${response.mentions.length} Mentions Found, ${response.sessions.length} Sessions Found]`);
             return state;
         } catch (error) {
             this.logger.error('Resolve Mention: ', error);
@@ -262,100 +265,173 @@ export class GenAIService {
     }
     private async planContentQueue(state: typeof StudyMindState.State) {
         try {
-            const ContentPlanSchema = z.object({
-                contentQueue: z.array(
-                    z.object({
-                        name: z.string(),
-                        type: z.enum(['FOLDER', 'NOTE', 'DOCUMENT', 'FLASHCARD', 'AUDIO', 'VIDEO', 'IMAGE']),
-                        parentId: z.number().nullable(),
-                        metadata: z
-                            .object({
-                                description: z.string().optional(),
-                                color: z.string().optional(),
-                                icon: z.enum(FolderIcon).optional(),
-                                notes: z.string().optional(),
-                                cards: z.array(z.object({ question: z.string(), answer: z.string() })).optional(),
-                                cardCount: z.number().optional(),
-                                fileType: z.string().optional(),
-                                duration: z.number().optional(),
-                                resolution: z.string().optional(),
-                            })
-                            .optional(),
-                        prompt: z.string().optional(),
-                    }),
-                ),
+            const PlanContentSchema = z.object({
+                contentQueue: z.array(z.object({ name: z.string(), type: z.string(), parentId: z.number() })),
             });
 
-            const outputParser = OutputFixingParser.fromLLM(this.genAI, StructuredOutputParser.fromZodSchema(ContentPlanSchema));
+            const structureModel = this.genAI.withStructuredOutput(PlanContentSchema);
+            const promptTemplate = ChatPromptTemplate.fromTemplate(`
+            You are StudyMind AI. Analyze the user's request and plan ONLY the structure of content to create.
 
-            const promptTemplate = new PromptTemplate({
-                template: `
-                You are StudyMind AI, an educational assistant. Your task is to generate appropriate study content based on the user's request. Generate only one content unless the user's intent clearly indicates a request for multiple contents.
+            Previous Chat Summary: {prevSummary}
+            User Message: {userMessage}
 
-                Previous Chat Summary: {prevSummary}
-                User Message: {userMessage}
+            REFERENCED CONTENT:
+            Based on previous created content @created {{...}} and users mentioned content @mention {{...}}, the system provides required parentId in references array:
+            {references}
 
-                REFERENCED CONTENT:
-                Based on previous created content @created {{...}} and users mentioned content @mention {{...}}, the system provides required content data in references array:
-                {references}
+            RULES:
+            1. Generate ONLY what the user explicitly requested
+            2. If user says "create a document", generate exactly 1 document
+            3. If user says "create flashcards", generate exactly 1 flashcard set
+            4. Only create multiple items if user explicitly asks for multiple things
 
-                NAME RULES:
-                - Use an educational and professional name for the content.
-                - Names should be concise and descriptive.
+            NAMING RULES:
+            - Use educational, professional names
+            - Be concise and descriptive
+            - Example: "Calculus Derivatives Guide", "Biology Cell Structure Notes"
 
-                TYPE RULES:
-                - Use the most appropriate type for the content (from the allowed enum, e.g., 'NOTE'), based on the user's request.
+            TYPE RULES:
+            - Use the type that best matches the user's request
+            - Use between 'FOLDER', 'NOTE', 'DOCUMENT', 'FLASHCARD', 'AUDIO', 'VIDEO', 'IMAGE'
 
-                PARENT ID RULES:
-                1. If the user explicitly request creation *inside* an existing folder from references, set parentId to that folder's id.
-                2. If the content related to the existing content from references, set parentId to that content's parentId.
-                3. If the user requests a nested structure where the parent hasn't been created yet, set root parentId by following the rules 1, 2 or null and set child parentId to -1.
-                4. If none of the above, set parentId to null.
+            PARENT ID RULES:
+            1. If user wants content inside an existing folder from references, set parentId to that folder's id
+            2. If content is related to referenced content, set parentId to that content's parentId
+            3. If creating nested structure where parent doesn't exist yet, set parent to 0, child to -1
+            4. Otherwise, set to 0
 
-                CONTENT TYPE SPECIFIC RULES:
-                - FOLDER: Requires metadata.color (hex code, e.g., "#A8C686") and metadata.icon (from allowed enum, e.g., "book").
-                - NOTE: Include a brief metadata.description. The markdown content should be in metadata.notes, structured with sections and sub-sections and formatted with headers, lists, tables. (max 1000 words).
-                - FLASHCARD: Include a brief metadata.description. The flashcards should be a JSON array of {{"question":"", "answer":""}} objects in metadata.cards. Number of cards should be in metadata.cardCount. (max 10 cards).
-                - DOCUMENT: Include a brief metadata.description. Set metadata.fileType to "pdf".
-                - AUDIO: Include a brief metadata.description. Set metadata.fileType to "mp3". Estimate metadata.duration in seconds.
-                - VIDEO: Include a brief metadata.description. Set metadata.fileType to "mp4". Estimate metadata.duration in seconds.
-                - IMAGE: Include a brief metadata.description. Set metadata.fileType to "png". Provide metadata.resolution in "widthxheight" format (e.g., "1920x1080").
+            Focus ONLY on structure. Do NOT worry about content details yet. Please be intelligent think twice before responding.
+        `);
 
-                PROMPT GENERATION RULES (Only for type: DOCUMENT, AUDIO, VIDEO, IMAGE):
-                - DOCUMENT: Set 'prompt' to a well-structured markdown document with headers, lists, and tables (max 200 words).
-                - AUDIO: Set 'prompt' to a short and natural-sounding script for speech synthesis (max 100 words).
-                - VIDEO: Set 'prompt' to a clear and engaging video script for visual narration (max 100 words).
-                - IMAGE: Set 'prompt' to a concise and specific image description (max 20 words).
+            const response = await structureModel.invoke(
+                await promptTemplate.formatMessages({
+                    prevSummary: state.prevSummary,
+                    userMessage: state.userMessage,
+                    references: [...state.mentionContext, ...state.sessionContext].map(item => ({
+                        uid: item.uid,
+                        name: item.name,
+                        type: item.type,
+                        parentId: item.parentId == null ? 0 : item.parentId,
+                    })),
+                }),
+            );
 
-                Do not include the 'prompt' field for other types.`,
-                inputVariables: ['prevSummary', 'userMessage', 'references'],
-            });
-
-            const response = await this.genAI.invoke([
-                new HumanMessage(
-                    await promptTemplate.format({
-                        prevSummary: state.prevSummary,
-                        userMessage: state.userMessage,
-                        references: [...state.mentionContext, ...state.sessionContext],
-                    }),
-                ),
-            ]);
-
-            const parsedResponse = await outputParser.parse(response.text);
-
-            if (!parsedResponse.contentQueue || parsedResponse.contentQueue.length === 0) {
-                throw new BadRequestException('Failed to plan content creation');
+            if (
+                !response.contentQueue ||
+                !response.contentQueue.length ||
+                !response.contentQueue.every(item => item.name && item.type && typeof item.parentId === 'number')
+            ) {
+                throw new BadRequestException('Failed to plan content structure');
             }
 
-            console.log('[Node] Plan Content Queue');
+            console.log(`[Node] Plan Content Structure: [${response.contentQueue.length} content planned]`);
             return {
                 ...state,
-                contentCreationQueue: parsedResponse.contentQueue,
+                contentCreationQueue: response.contentQueue,
                 currentCreationIndex: 0,
             };
         } catch (error) {
-            this.logger.error('Plan Content Queue: ', error);
-            throw new BadRequestException('Failed to plan content creation');
+            this.logger.error('Plan Content Structure: ', error);
+            throw new BadRequestException('Failed to plan content structure');
+        }
+    }
+    private async createContentQueue(state: typeof StudyMindState.State) {
+        try {
+            const contentQueue = [];
+
+            for (const contentItem of state.contentCreationQueue) {
+                const CreateContentSchema = z.object({
+                    metadata: z.record(z.any()).optional(),
+                    prompt: z.string().optional(),
+                });
+
+                const structureModel = this.genAI.withStructuredOutput(CreateContentSchema);
+
+                const promptTemplate = ChatPromptTemplate.fromTemplate(`
+                You are StudyMind AI. I have already analyzed the user's request and planned the required content structure. 
+                Now, based on the content type, generate the appropriate metadata and prompt for this specific item:
+
+                Previous Chat Summary: {prevSummary}
+                User Message: {userMessage}
+                Content Item: {contentItem}
+
+                REFERENCED CONTENT:
+                Based on previous created content @created {{...}} and users mentioned content @mention {{...}}, the system provides required parentId in references array:
+                {references}
+
+                TYPE-SPECIFIC REQUIREMENTS:
+
+                FOLDER:
+                - metadata.color: hex code (e.g., "#A8C686")
+                - metadata.icon: from enum {folderIcons}
+
+                NOTE:
+                - metadata.description: brief description
+                - metadata.notes: well-structured markdown content (max 500 words)
+
+                FLASHCARD:
+                - metadata.description: brief description  
+                - metadata.cards: JSON array of {{"question":"", "answer":""}} objects
+                - metadata.cardCount: number of cards (max 10)
+
+                DOCUMENT:
+                - metadata.description: brief description
+                - metadata.fileType: "pdf"
+                - prompt: well-structured markdown content for md to pdf conversion (max 500 words)
+
+                AUDIO:
+                - metadata.description: brief description
+                - metadata.fileType: "mp3"
+                - metadata.duration: estimated seconds
+                - prompt: natural speech script (max 100 words)
+
+                VIDEO:
+                - metadata.description: brief description
+                - metadata.fileType: "mp4"  
+                - metadata.duration: estimated seconds
+                - prompt: video script (max 100 words)
+
+                IMAGE:
+                - metadata.description: brief description
+                - metadata.fileType: "png"
+                - metadata.resolution: "widthxheight" (e.g., "1920x1080")
+                - prompt: image description (max 20 words)
+
+                Generate ONLY what's needed for this specific item type.
+            `);
+
+                const response = await structureModel.invoke(
+                    await promptTemplate.formatMessages({
+                        prevSummary: state.prevSummary,
+                        userMessage: state.userMessage,
+                        contentItem: contentItem,
+                        references: [...state.mentionContext, ...state.sessionContext].map(item => ({
+                            uid: item.uid,
+                            name: item.name,
+                            type: item.type,
+                            content: item.content,
+                        })),
+                        folderIcons: FolderIcon.join(', '),
+                    }),
+                );
+
+                contentQueue.push({
+                    ...contentItem,
+                    parentId: contentItem.parentId !== 0 ? contentItem.parentId : null,
+                    metadata: response.metadata || {},
+                    ...(response.prompt && { prompt: response.prompt }),
+                });
+            }
+
+            console.log(`[Node] Create Content Queue: [${contentQueue.length} items created]`);
+            return {
+                ...state,
+                contentCreationQueue: contentQueue,
+            };
+        } catch (error) {
+            this.logger.error('Create Content Queue: ', error);
+            throw new BadRequestException('Failed to create content queue');
         }
     }
     private async createOneContent(state: typeof StudyMindState.State) {
@@ -401,7 +477,7 @@ export class GenAIService {
                     name: currentContent.name,
                     type: currentContent.type,
                     parentId: currentContent.parentId === -1 ? createdContent[createdContent.length - 1].id : currentContent.parentId,
-                    userId: 1,
+                    userId: state.userId,
                     metadata: { ...(currentContent?.metadata || {}), ...metadata },
                 })
                 .returning();
@@ -410,7 +486,7 @@ export class GenAIService {
                 throw new BadRequestException('Failed to create content');
             }
 
-            console.log('[Node] Create One Content');
+            console.log(`[Node] Create One Content: [${createdItem[0].name} (${createdItem[0].type})]`);
             return {
                 ...state,
                 currentCreationIndex: state.currentCreationIndex + 1,
@@ -536,25 +612,31 @@ export class GenAIService {
         }
     }
     private routeAfterRefs(state: typeof StudyMindState.State) {
-        console.log('[ROUTE] Route After Refs');
+        console.log('[Route] Route After Refs');
         return state.messageType;
     }
     private routeAfterContext(state: typeof StudyMindState.State) {
-        console.log('[ROUTE] Route After Context');
+        console.log('[Route] Route After Context');
         return state.messageType;
     }
     private routeContentProgress(state: typeof StudyMindState.State) {
         const { contentCreationQueue, currentCreationIndex } = state;
 
-        console.log('[ROUTE] Route Content Progress');
+        console.log('[Route] Route Content Progress');
         return currentCreationIndex < contentCreationQueue.length ? 'CONTINUE' : 'COMPLETE';
     }
 
     // 🎯 Main entrypoint
-    async generateGraphResponses(sessionUid: string, chatMessages: MessageDto[], dbTxn): Promise<typeof StudyMindState.State> {
+    async generateGraphResponses(
+        userId: number,
+        sessionUid: string,
+        chatMessages: MessageDto[],
+        dbTxn,
+    ): Promise<typeof StudyMindState.State> {
         try {
             this.dbTxn = dbTxn;
             const initialState: typeof StudyMindState.State = {
+                userId: userId,
                 session: { uid: sessionUid, title: '', description: '' },
                 userMessage: chatMessages[chatMessages.length - 1].message,
                 prevMessage: chatMessages.slice(0, -1),
