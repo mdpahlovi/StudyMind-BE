@@ -21,7 +21,7 @@ export class DownloadService {
     async downloadFile(url: string, fileName: string, fileType: string) {
         try {
             const filePath = fileName
-                .replace(/[^a-zA-Z0-9 ]/g, '')
+                .replace(/[^a-zA-Z0-9]/g, '_')
                 .toLowerCase()
                 .concat(`_${Date.now()}.${fileType}`);
             const tempPath = path.join(path.join(__dirname, '..', '..', '..', 'public'), filePath);
@@ -49,7 +49,7 @@ export class DownloadService {
     async downloadPdf(prompt: string, fileName: string) {
         try {
             const filePath = fileName
-                .replace(/[^a-zA-Z0-9 ]/g, '')
+                .replace(/[^a-zA-Z0-9]/g, '_')
                 .toLowerCase()
                 .concat(`_${Date.now()}.pdf`);
             const tempPath = path.join(path.join(__dirname, '..', '..', '..', 'public'), filePath);

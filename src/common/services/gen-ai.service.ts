@@ -2,16 +2,16 @@ import { DatabaseService } from '@/database/database.service';
 import { LibraryItem, libraryItem, LibraryItemType } from '@/database/schemas';
 import { MessageDto } from '@/modules/chat/chat.dto';
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { ChatPromptTemplate, PromptTemplate } from '@langchain/core/prompts';
+import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { ChatOpenAI } from '@langchain/openai';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { inArray } from 'drizzle-orm';
-import { OutputFixingParser, StructuredOutputParser } from 'langchain/output_parsers';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import { DownloadService } from './download.service';
+import { VectorService } from './vector.service';
 
 type MessageType = 'CONTEXTUAL_CHAT' | 'CREATE_CONTENT' | 'ANALYZE_CONTENT';
 
@@ -63,6 +63,7 @@ export class GenAIService {
         private readonly configService: ConfigService,
         private readonly databaseService: DatabaseService,
         private readonly downloadService: DownloadService,
+        private readonly vectorService: VectorService,
     ) {
         this.initializeGenAI();
         this.buildGraph();
@@ -251,10 +252,13 @@ export class GenAIService {
             const db = this.dbTxn ? this.dbTxn : this.databaseService.database;
 
             const itemsUid = [...response.mentions, ...response.sessions].map(item => item.uid);
-            const itemData = await db.select().from(libraryItem).where(inArray(libraryItem.uid, itemsUid));
+            const itemData = await db
+                .select()
+                .from(libraryItem)
+                .where(and(inArray(libraryItem.uid, itemsUid), eq(libraryItem.isActive, true)));
 
-            state.mentionContext = await this.putInState(response.mentions, itemData as any);
-            state.sessionContext = await this.putInState(response.sessions, itemData as any);
+            state.mentionContext = await this.putInState(state, response.mentions, itemData as any);
+            state.sessionContext = await this.putInState(state, response.sessions, itemData as any);
 
             console.log(`[Node] Resolve Mention: [${response.mentions.length} Mentions Found, ${response.sessions.length} Sessions Found]`);
             return state;
@@ -635,6 +639,7 @@ export class GenAIService {
                     - Confirms what was created
                     - Encourages continued learning
                     - Ends with "Click here to view ↓"
+                    - Does not mention the @created content.
 
                     Keep it under 50 words and enthusiastic.
                 `);
@@ -749,7 +754,7 @@ export class GenAIService {
         return response.text;
     }
 
-    private async putInState(reference: any[], itemData: LibraryItem[]) {
+    private async putInState(state: typeof StudyMindState.State, reference: any[], itemData: LibraryItem[]) {
         const result = [];
         for (const item of reference) {
             const itemD = itemData.find(d => d.uid === item.uid);
@@ -757,11 +762,36 @@ export class GenAIService {
             let content = '';
             if (item?.needContent) {
                 switch (itemD?.type) {
+                    case 'FOLDER':
+                        const folderContent = await this.databaseService.database
+                            .select()
+                            .from(libraryItem)
+                            .where(
+                                and(
+                                    eq(libraryItem.parentId, itemD.id),
+                                    eq(libraryItem.userId, state.userId),
+                                    eq(libraryItem.isActive, true),
+                                    ne(libraryItem.type, 'FOLDER'),
+                                ),
+                            );
+
+                        const promptTemplate = `
+                                You are StudyMind AI, an educational assistant analyzing a student's study folder. Provide a comprehensive and helpful overview.
+                                
+                                User Message: ${state.userMessage}
+                                Folder Name: ${itemD.name} 
+                                Folder Content: ${folderContent.map(item => `- ${item.name} (${item.type})`).join('\n')}
+                                
+                                Provide a comprehensive response that helps the student understand their available resources.
+                            `;
+
+                        content = await this.generateResponse(promptTemplate);
+                        break;
                     case 'NOTE':
                         content = await this.generateResponse(itemD?.metadata['notes'], item?.whatNeed);
                         break;
                     case 'DOCUMENT':
-                        content = '';
+                        content = await this.vectorService.searchByItemUid(item?.whatNeed, itemD?.uid);
                         break;
                     case 'FLASHCARD':
                         content = await this.generateResponse(itemD?.metadata['cards'], item?.whatNeed);

@@ -116,8 +116,15 @@ export class LibraryService {
 
     async getLibraryItemsWithPath(query: any, user: User) {
         const db = this.databaseService.database;
+        let libraryItemWhere = '';
 
-        const type = query.type || '';
+        if (query?.isEmbedded) {
+            libraryItemWhere = `AND li.is_embedded = ${query.isEmbedded ? 'TRUE' : 'FALSE'}`;
+        }
+
+        if (query?.type) {
+            libraryItemWhere = `AND li.type = '${query.type}'`;
+        }
 
         const libraryItemsQuery = `
         WITH RECURSIVE child_item AS (
@@ -130,7 +137,7 @@ export class LibraryService {
                 li.parent_id IS NULL 
                 AND li.user_id = ${user.id} 
                 AND li.is_active = TRUE 
-                ${type ? `AND li.type = '${type}'` : ''}
+                ${libraryItemWhere}
             UNION ALL
             SELECT 
                 li.*,
@@ -142,7 +149,7 @@ export class LibraryService {
             WHERE 
                 li.user_id = ${user.id}
                 AND li.is_active = TRUE
-                ${type ? `AND li.type = '${type}'` : ''}
+                ${libraryItemWhere}
         )
         SELECT 
             *
@@ -189,6 +196,7 @@ export class LibraryService {
             return await tx
                 .insert(libraryItem)
                 .values({
+                    isEmbedded: ['DOCUMENT', 'AUDIO', 'VIDEO', 'IMAGE'].includes(body.type) ? false : true,
                     name: body.name,
                     type: body.type,
                     parentId: body.parentId,

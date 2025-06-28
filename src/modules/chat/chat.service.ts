@@ -131,6 +131,7 @@ export class ChatService {
                     data: {
                         session: chatSession[0],
                         message: newMessages[1],
+                        isCreatedItem: !!response.createdContent.length,
                     },
                 };
             }

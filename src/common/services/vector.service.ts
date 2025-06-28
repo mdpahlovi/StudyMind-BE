@@ -8,8 +8,6 @@ import { ConfigService } from '@nestjs/config';
 import { Pinecone } from '@pinecone-database/pinecone';
 import * as fs from 'fs';
 import * as path from 'path';
-import { GenAIService } from './gen-ai.service';
-import { SupabaseService } from './supabase.service';
 
 @Injectable()
 export class VectorService {
@@ -20,11 +18,7 @@ export class VectorService {
     private genAI: GoogleGenerativeAI;
     private visionModel: any;
 
-    constructor(
-        private readonly configService: ConfigService,
-        private readonly genAIService: GenAIService,
-        private readonly supabaseService: SupabaseService,
-    ) {
+    constructor(private readonly configService: ConfigService) {
         this.initialize();
     }
 
@@ -105,6 +99,23 @@ export class VectorService {
             return vectorIds;
         } catch (error) {
             throw new BadRequestException(`Failed to embed pdf: ${error.message}`);
+        }
+    }
+
+    async searchByItemUid(query: string, itemUid: string): Promise<string> {
+        try {
+            const filters = { itemUid: { $eq: itemUid } };
+            const queryEmbedding = await this.embeddings.embedQuery(query);
+            const results = await this.vectorStore.similaritySearchVectorWithScore(queryEmbedding, 10, filters);
+
+            if (results.length === 0) return 'No relevant content found for your query.';
+
+            const combineContent = results.map(([document, score]) => document.pageContent).join('\n\n---\n\n');
+
+            console.log(`Found ${results.length} results for itemUid: ${itemUid}`);
+            return combineContent;
+        } catch (error) {
+            throw new BadRequestException(`Failed to search contents: ${error.message}`);
         }
     }
 }
