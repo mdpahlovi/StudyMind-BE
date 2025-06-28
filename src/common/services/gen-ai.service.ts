@@ -342,7 +342,21 @@ export class GenAIService {
 
             for (const contentItem of state.contentCreationQueue) {
                 const CreateContentSchema = z.object({
-                    metadata: z.record(z.any()).optional(),
+                    metadata: z
+                        .object({
+                            // Common fields
+                            description: z.string().optional(),
+                            // Folder specific
+                            color: z.string().optional(),
+                            icon: z.string().optional(),
+                            // Note specific
+                            notes: z.string().optional(),
+                            // Media specific
+                            fileType: z.string().optional(),
+                            duration: z.number().optional(),
+                            resolution: z.string().optional(),
+                        })
+                        .optional(),
                     prompt: z.string().optional(),
                 });
 
@@ -372,8 +386,7 @@ export class GenAIService {
 
                 FLASHCARD:
                 - metadata.description: brief description  
-                - metadata.cards: JSON array of {{"question":"", "answer":""}} objects
-                - metadata.cardCount: number of cards (max 10)
+                - prompt: detailed content outline for flashcard generation (max 250 words)
 
                 DOCUMENT:
                 - metadata.description: brief description
@@ -416,6 +429,10 @@ export class GenAIService {
                     }),
                 );
 
+                if (!['FOLDER', 'NOTE'].includes(contentItem.type) && !response.prompt) {
+                    throw new BadRequestException('Failed to generate content');
+                }
+
                 contentQueue.push({
                     ...contentItem,
                     parentId: contentItem.parentId !== 0 ? contentItem.parentId : null,
@@ -439,16 +456,52 @@ export class GenAIService {
             const { contentCreationQueue, currentCreationIndex, createdContent } = state;
             const currentContent = contentCreationQueue[currentCreationIndex] as any;
 
-            if (!currentContent?.name || !currentContent?.type) {
-                throw new BadRequestException('Please provide more specific instructions. What do you want to create?');
-            }
-            if (['DOCUMENT', 'AUDIO', 'VIDEO', 'IMAGE'].includes(currentContent?.type) && !currentContent?.prompt) {
-                throw new BadRequestException('Please provide more specific instructions. What do you want to create?');
-            }
-
             let metadata = {};
             if (currentContent?.type === 'DOCUMENT') {
                 metadata = await this.downloadService.downloadPdf(currentContent.prompt, currentContent.name);
+            } else if (currentContent?.type === 'FLASHCARD') {
+                const FlashcardSchema = z.object({
+                    cards: z.array(z.object({ question: z.string(), answer: z.string() })),
+                });
+
+                const structureModel = this.genAI.withStructuredOutput(FlashcardSchema);
+                const promptTemplate = ChatPromptTemplate.fromTemplate(`
+                    You are StudyMind AI. Generate educational flashcards based on the provided content outline.
+        
+                    Flashcard Content Outline: {prompt}
+                    Flashcard Set Name: {name}
+        
+                    YOUR TASK: Create engaging question-answer pairs that help students learn and remember key concepts.
+        
+                    GUIDELINES:
+                    - Generate 5-10 flashcards (max 10)
+                    - Questions should be clear and specific
+                    - Answers should be concise but complete
+                    - Cover different aspects: definitions, examples, applications
+                    - Use variety: what, why, how, when questions
+                    - Make questions challenging but fair
+        
+                    EXAMPLES:
+                    - "What is [concept]?" → "Definition and key characteristics"
+                    - "Why does [phenomenon] occur?" → "Explanation of causes/reasons"
+                    - "How do you calculate [formula]?" → "Step-by-step process"
+                    - "When is [method] used?" → "Specific scenarios and applications"
+        
+                    Generate diverse, educational flashcards that promote active learning.
+                `);
+
+                const response = await structureModel.invoke(
+                    await promptTemplate.formatMessages({
+                        prompt: currentContent.prompt,
+                        name: currentContent.name,
+                    }),
+                );
+
+                if (!response.cards || response.cards.length === 0) {
+                    throw new BadRequestException('Failed to generate flashcards');
+                }
+
+                metadata = { cards: response.cards, cardCount: response.cards.length };
             } else if (currentContent?.type === 'AUDIO') {
                 metadata = await this.downloadService.downloadFile(
                     `https://text.pollinations.ai/${currentContent.prompt}?model=openai-audio&voice=nova`,
