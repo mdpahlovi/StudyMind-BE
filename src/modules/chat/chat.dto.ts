@@ -1,7 +1,8 @@
 import { ChatMessageRole } from '@/database/schemas/chat.schema';
 import { ApiProperty } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { IsNotEmpty, IsOptional, ValidateNested } from 'class-validator';
+import * as moment from 'moment';
 
 export class MessageDto {
     @ApiProperty({ description: 'Message UID', example: 'Hello' })
@@ -17,10 +18,12 @@ export class MessageDto {
     message: string;
 
     @ApiProperty({ description: 'Message timestamp', example: new Date() })
+    @Transform(({ value }) => moment(value).subtract(6, 'hours').toISOString())
     @IsNotEmpty()
     createdAt: Date;
 
     @ApiProperty({ description: 'Message timestamp', example: new Date() })
+    @Transform(({ value }) => moment(value).subtract(6, 'hours').toISOString())
     @IsNotEmpty()
     updatedAt: Date;
 }
