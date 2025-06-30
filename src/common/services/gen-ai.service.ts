@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { DownloadService } from './download.service';
 import { VectorService } from './vector.service';
 
-type MessageType = 'CONTEXTUAL_CHAT' | 'CREATE_CONTENT' | 'ANALYZE_CONTENT';
+type MessageType = 'CHAT' | 'CREATE' | 'UPDATE' | 'DELETE' | 'READ';
 
 const FolderIcon = [
     'book',
@@ -94,13 +94,15 @@ export class GenAIService {
             // Added all the edges
             .addEdge(START, 'identifyUserIntent')
             .addConditionalEdges('identifyUserIntent', this.routeAfterRefs.bind(this), {
-                CONTEXTUAL_CHAT: 'contextualChat',
-                CREATE_CONTENT: 'resolveMentions',
-                ANALYZE_CONTENT: 'resolveMentions',
+                CHAT: 'contextualChat',
+                CREATE: 'resolveMentions',
+                UPDATE: 'generateUserReply',
+                DELETE: 'generateUserReply',
+                READ: 'resolveMentions',
             })
             .addConditionalEdges('resolveMentions', this.routeAfterContext.bind(this), {
-                CREATE_CONTENT: 'planContentQueue',
-                ANALYZE_CONTENT: 'analyzeContent',
+                CREATE: 'planContentQueue',
+                READ: 'analyzeContent',
             })
             .addEdge('planContentQueue', 'createContentQueue')
             .addEdge('createContentQueue', 'createOneContent')
@@ -120,24 +122,18 @@ export class GenAIService {
             const IntentSchema = z.object({
                 title: z.string(),
                 description: z.string(),
-                messageType: z.enum(['CONTEXTUAL_CHAT', 'CREATE_CONTENT', 'ANALYZE_CONTENT']),
+                messageType: z.enum(['CHAT', 'CREATE', 'UPDATE', 'DELETE', 'READ']),
             });
             const structureModel = this.genAI.withStructuredOutput(IntentSchema);
             const promptTemplate = ChatPromptTemplate.fromTemplate(
-                `You are StudyMind AI, an educational assistant. Classify user's intent into one of three types:
+                `You are StudyMind AI's intent classifier. Classify user's intent and respond accordingly.
                 
-                Intent Type:
-                1. ANALYZE_CONTENT: When user references existing content @mention {{...}} with analysis/discussion keywords 
-                (overview, explain, discuss, understand, help with)
-                2. CREATE_CONTENT: When user wants to create new content (with/without @mention) using creation keywords 
-                (create, make, generate, turn into, convert, build, add)
-                3. CONTEXTUAL_CHAT: General discussions/Q&A without content creation or analysis
-                
-                Decision Steps:
-                a) If @mention + creation keywords → CREATE_CONTENT
-                b) If @mention + analysis keywords → ANALYZE_CONTENT
-                c) If creation keywords without @mention → CREATE_CONTENT
-                d) Otherwise → CONTEXTUAL_CHAT
+                Message Type:
+                1. READ: When user @mention existing content or references content from previous conversation and wants to read/analyze/understand/learn/discuss it
+                2. CREATE: When user wants to create new content using creation keywords (create, make, generate, turn into, convert, build, add)
+                3. UPDATE: When user wants to modify existing content using update keywords (edit, modify, change, update, revise, improve)  
+                4. DELETE: When user wants to remove/delete existing content using delete keywords (delete, remove, trash, eliminate)
+                5. CHAT (Default): General questions without specific content management intent
 
                 Title: Be specific and educational-focused (e.g., "Calculus Derivative and Integral").
                 Description: Capture the user's learning goal, intent and subject area.
@@ -148,7 +144,7 @@ export class GenAIService {
 
             const response = await structureModel.invoke(
                 await promptTemplate.formatMessages({
-                    prevSummary: state.prevSummary || '',
+                    prevSummary: state.prevSummary,
                     userMessage: state.userMessage,
                 }),
             );
@@ -162,10 +158,10 @@ export class GenAIService {
                 ...state,
                 session: {
                     ...state.session,
-                    title: response.title || 'Unknown Chat',
-                    description: response.description || '',
+                    title: response.title,
+                    description: response.description,
                 },
-                messageType: response.messageType || 'CONTEXTUAL_CHAT',
+                messageType: response.messageType,
             };
         } catch (error) {
             this.logger.error('Identify User Intent: ', error);
@@ -186,84 +182,70 @@ export class GenAIService {
             }
 
             const ResolveMentionSchema = z.object({
-                mentions: z.array(z.object({ uid: z.string(), needContent: z.boolean(), whatNeed: z.string() })),
-                sessions: z.array(z.object({ uid: z.string(), needContent: z.boolean(), whatNeed: z.string() })),
+                mentionContent: z.array(z.object({ uid: z.string(), needContent: z.boolean(), purpose: z.string() })),
+                createdContent: z.array(z.object({ uid: z.string(), needContent: z.boolean(), purpose: z.string() })),
             });
 
             const structureModel = this.genAI.withStructuredOutput(ResolveMentionSchema);
             const promptTemplate = ChatPromptTemplate.fromTemplate(
-                `You are StudyMind AI, an educational assistant. User wants to {intent} content. Extract required @mention {{...}} from user's message and @created {{...}} from the previous chat summary.
-        
+                `You are StudyMind AI's content resolver. Extract content references needed for the {messageType} operation.
+
+                EXTRACTION RULES:
+                1. Extract @mention {{...}} from user message or previous summary, set to mentionContent array
+                2. Extract @created {{...}} from previous summary, set to createdContent array  
+                3. Only include content that's actually needed for the {messageType} operation
+                4. If multiple similar content exist, they are reference same purpose then prefer the most recent/relevant one
+
+                CONTENT NEED CLASSIFICATION:
+                needContent: true  when Need to read/analyze the actual content
+                needContent: false when Only need as reference (parent folder, sibling content, etc)
+
+                PURPOSE EXAMPLES:
+                - "extract key concepts for flashcard creation"
+                - "use as parent folder for organization" 
+                - "analyze content structure and format"
+                - "find specific information about [topic]"
+
+                OPERATION CONTEXT:
+                - CREATE: May need content for templates/source material + parent folders/sibling content
+                - READ: Always need full content for analysis
+
+                INPUT:
                 Previous Chat Summary: {prevSummary}
                 User Message: {userMessage}
-                
-                IMPORTANT RULES:
-                1. If multiple similar @mention or @created items exist and their purposes are similar, take only the LAST/MOST RECENT one
-                2. For each item, determine if you need the actual content or just for reference
-                3. Specify exactly what is needed from the content
-                
-                Context Examples:
-                1) Previous Chat Summary: "I created a folder 'Mathematics' @created {{uid: '...', name: 'Mathematics', type: 'FOLDER'}}"
-                User Message: "Create a document about calculus derivatives"
-                → sessions: [{{uid: '...', needContent: false, whatNeed: 'to use as parent folder'}}]
-                
-                2) User Message: "@mention {{uid: '...', name: 'Calculus Chapter 3', type: 'DOCUMENT'}} create flashcards from this"
-                → mentions: [{{uid: '...', needContent: true, whatNeed: 'extract key concepts and definitions for flashcard creation'}}]
-                
-                3) User Message: "@mention {{uid: '...', name: 'Physics Notes', type: 'DOCUMENT'}} explain the second paragraph"
-                → mentions: [{{uid: '...', needContent: true, whatNeed: 'find and explain the second paragraph content'}}]
-                
-                4) Previous Chat Summary: "Created folder @created {{uid: '...', name: 'Math', type: 'FOLDER'}} then created another folder @created {{uid: '...', name: 'Advanced Math', type: 'FOLDER'}}"
-                User Message: "Create a document about calculus"
-                → sessions: [{{uid: '...', needContent: false, whatNeed: 'to use as parent folder'}}] // Only the LAST folder
-                
-                5) User Message: "@mention {{uid: '...', name: 'Biology Chapter 1', type: 'DOCUMENT'}} @mention {{uid: '...', name: 'Biology Chapter 2', type: 'DOCUMENT'}} create summary"
-                → mentions: [{{uid: '...', needContent: true, whatNeed: 'extract main concepts for summary creation'}}, {{uid: '...', needContent: true, whatNeed: 'extract main concepts for summary creation'}}] // Both for create summary
-                
-                6) Previous Chat Summary: "Created flashcards @created {{uid: '...', name: 'Algebra Basics', type: 'FLASHCARD'}}"
-                User Message: "Make similar flashcards for geometry"
-                → sessions: [{{uid: '...', needContent: true, whatNeed: 'use as template structure and format reference'}}]
-                
-                needContent Guidelines:
-                - true: When you need to READ/ANALYZE the actual content (text, data, structure)
-                - false: When you only need it as a reference for parent/sibling
-                
-                whatNeed Examples:
-                - needContent: true → "extract key formulas and concepts", "find specific paragraph about...", "analyze writing style and tone", "get content structure and topics"
-                - needContent: false → "to use as parent folder", "to use as sibling location"
-                
-                Please be intelligent think twice before responding.
-            `,
+                Operation Type: {messageType}
+
+                Extract only the content references that are actually required for this {messageType} operation.`,
             );
 
             const response = await structureModel.invoke(
                 await promptTemplate.formatMessages({
                     prevSummary: state.prevSummary,
                     userMessage: state.userMessage,
-                    intent: state.messageType.split('_')[0].toLowerCase(),
+                    messageType: state.messageType,
                 }),
             );
 
-            if (!response?.mentions?.length && !response?.sessions?.length) {
-                console.log('[Node] Resolve Mention: [No Valid Mentions Found]');
+            if (response?.mentionContent?.length === 0 && response?.createdContent?.length === 0) {
+                console.log('[Node] Resolve Mention: [No Valid References Found]');
                 return state;
             }
 
             const db = this.dbTxn ? this.dbTxn : this.databaseService.database;
 
-            const itemsUid = [...response.mentions, ...response.sessions].map(item => item.uid);
+            const itemsUid = [...response.mentionContent, ...response.createdContent].map(item => item.uid);
             const itemData = await db
                 .select()
                 .from(libraryItem)
                 .where(and(inArray(libraryItem.uid, itemsUid), eq(libraryItem.isActive, true)));
 
-            state.mentionContext = await this.putInState(state, response.mentions, itemData as any);
-            state.sessionContext = await this.putInState(state, response.sessions, itemData as any);
+            state.mentionContext = await this.putInState(state, response.mentionContent, itemData as any);
+            state.sessionContext = await this.putInState(state, response.createdContent, itemData as any);
 
-            console.log(`[Node] Resolve Mention: [${response.mentions.length} Mentions Found, ${response.sessions.length} Sessions Found]`);
+            console.log(`[Node] Resolve Mention: [${response.mentionContent.length} Mention, ${response.createdContent.length} Created]`);
             return state;
         } catch (error) {
-            this.logger.error('Resolve Mention: ', error);
+            this.logger.error('Resolve Mention:', error);
             throw new BadRequestException('Failed to resolve mentions');
         }
     }
@@ -564,7 +546,7 @@ export class GenAIService {
                 .join('\n\n');
 
             const systemPrompt = new SystemMessage(`
-                You are StudyMind AI, an educational assistant. Analyze the provided content and respond to the user's question or request.
+                You are StudyMind AI, an educational assistant. Analyze the provided content and respond according to user requests.
                 
                 Guidelines:
                 - Provide detailed, educational explanations
@@ -576,6 +558,8 @@ export class GenAIService {
                 
                 Referenced Content:
                 ${contextReferences}
+
+                Previous Chat Summary: ${state.prevSummary}
             `);
 
             const response = await this.genAI.invoke([systemPrompt, new HumanMessage(state.userMessage)]);
@@ -625,12 +609,17 @@ export class GenAIService {
     }
     private async generateUserReply(state: typeof StudyMindState.State) {
         try {
-            if (state.messageType === 'CONTEXTUAL_CHAT') {
+            if (state.messageType === 'READ' || state.messageType === 'CHAT') {
                 console.log('[Node] Generate User Reply');
                 return state;
-            } else if (state.messageType === 'CREATE_CONTENT') {
+            } else if (state.messageType === 'UPDATE' || state.messageType === 'DELETE') {
+                return {
+                    ...state,
+                    response: "Sorry, update and delete operations are not supported yet. We're working to bring this feature soon!",
+                };
+            } else if (state.messageType === 'CREATE') {
                 const promptTemplate = ChatPromptTemplate.fromTemplate(`
-                    You are StudyMind AI. You successfully created content for the user.
+                    You are StudyMind AI. You successfully created content based on the user's request.
 
                     User Message: {userMessage}
                     Created Content: {createdContent}
@@ -638,8 +627,7 @@ export class GenAIService {
                     Generate a short, friendly success message that:
                     - Confirms what was created
                     - Encourages continued learning
-                    - Ends with "Click here to view ↓"
-                    - Does not mention the @created content.
+                    - Ends with "Click here to view"
 
                     Keep it under 50 words and enthusiastic.
                 `);
@@ -654,15 +642,10 @@ export class GenAIService {
                 console.log('[Node] Generate User Reply');
                 return {
                     ...state,
-                    response: `${response.text}\n${state.createdContent
-                        .map(content => {
-                            return `@created ${JSON.stringify({ ...content, metadata: null })}`;
-                        })
+                    response: `${response.text.replace(/@mention\s*{[^}]+}|@created\s*{[^}]+}/g, '')}\n${state.createdContent
+                        .map(content => `@created ${JSON.stringify({ ...content, metadata: null })}`)
                         .join('\n')}`,
                 };
-            } else if (state.messageType === 'ANALYZE_CONTENT') {
-                console.log('[Node] Generate User Reply');
-                return state;
             }
         } catch (error) {
             this.logger.error('Generate User Reply: ', error);
@@ -699,7 +682,7 @@ export class GenAIService {
                 userMessage: chatMessages[chatMessages.length - 1].message,
                 prevMessage: chatMessages.slice(0, -1),
                 prevSummary: await this.generateSummary(chatMessages.slice(0, -1)),
-                messageType: 'CONTEXTUAL_CHAT',
+                messageType: 'CHAT',
                 contentCreationQueue: [],
                 currentCreationIndex: 0,
                 createdContent: [],
@@ -735,18 +718,23 @@ export class GenAIService {
         if (chatHistory.length === 0) return '';
 
         const recentConversation = chatHistory
-            .slice(-10) // Increased to capture more context for @created tracking
+            .slice(-10) // Limit to the last 10 messages
             .map(msg => `${msg.role}: ${msg.message}`)
             .join('\n');
 
         const response = await this.genAI.invoke([
-            new SystemMessage(`Summarize the key context from this conversation in a few sentences. Focus on:
+            new SystemMessage(`You are StudyMind AI, an educational assistant. Summarize the key context from this conversation in a few sentences. FOCUS ON:
             - Main topics discussed
-            - Any content created or referenced in the conversation
+            - Any content @created or @mention in the conversation
             - Current learning goals or questions
             - Educational subject areas
-            
-            IMPORTANT: When content was created in this conversation, include @created {{...}} tags. Must retrieve @created {{...}} tags from the previous chat summary. Because @created {{...}} tags are important to track content creation across conversation sessions.`),
+
+            IMPORTANT: Must include all @created and @mention tags that actually appear in the conversation. Do not hallucinate content references.
+
+            Take @created and @mention tags like this:
+            - @created {"uid": "...", "name": "...", "type": "..."}
+            - @mention {"uid": "...", "name": "...", "type": "..."}
+            `),
             new HumanMessage(`Conversation:\n${recentConversation}`),
         ]);
 
@@ -758,6 +746,23 @@ export class GenAIService {
         const result = [];
         for (const item of reference) {
             const itemD = itemData.find(d => d.uid === item.uid);
+
+            if (!itemD) {
+                console.warn(`Content not found for uid: ${item.uid}`);
+                continue;
+            }
+
+            const systemPrompt = `
+                You are StudyMind AI, an educational assistant. Based on the user request, ${item?.purpose}.
+
+                Guidelines:
+                - Be specific and educational-focused
+                - Provide clear, structured information
+                - Focus on the user's learning objectives
+                - Use examples when helpful
+
+                User Request: ${state.userMessage}
+                Content Name: ${itemD.name}`;
 
             let content = '';
             if (item?.needContent) {
@@ -775,35 +780,40 @@ export class GenAIService {
                                 ),
                             );
 
-                        const promptTemplate = `
-                                You are StudyMind AI, an educational assistant analyzing a student's study folder. Provide a comprehensive and helpful overview.
-                                
-                                User Message: ${state.userMessage}
-                                Folder Name: ${itemD.name} 
-                                Folder Content: ${folderContent.map(item => `- ${item.name} (${item.type})`).join('\n')}
-                                
-                                Provide a comprehensive response that helps the student understand their available resources.
-                            `;
+                        const folderPrompt = `
+                            You are StudyMind AI, an educational assistant analyzing a student's study folder.
 
-                        content = await this.generateResponse(promptTemplate);
+                            User Message: ${state.userMessage}
+                            Folder Name: ${itemD.name}
+                            Folder Contents:
+                            ${folderContent.map(item => `- ${item.name} (${item.type})`).join('\n')}
+
+                            Provide a comprehensive response that helps the student understand their available resources and how they relate to their request.`;
+
+                        content = await this.generateResponse(folderPrompt);
                         break;
                     case 'NOTE':
-                        content = await this.generateResponse(itemD?.metadata['notes'], item?.whatNeed);
+                        const noteContent = itemD.metadata?.['notes'] || '';
+                        content = await this.generateResponse(noteContent, systemPrompt);
                         break;
                     case 'DOCUMENT':
-                        content = await this.vectorService.searchByItemUid(item?.whatNeed, itemD?.uid);
+                        const documentContent = await this.vectorService.searchByItemUid(item.purpose, itemD.uid);
+                        content = await this.generateResponse(documentContent, systemPrompt);
                         break;
                     case 'FLASHCARD':
-                        content = await this.generateResponse(itemD?.metadata['cards'], item?.whatNeed);
+                        const flashcardContent = itemD.metadata?.['cards']?.length
+                            ? itemD.metadata['cards'].map(item => `- ${item.question}: ${item.answer}`).join('\n')
+                            : '';
+                        content = await this.generateResponse(flashcardContent, systemPrompt);
                         break;
                     case 'AUDIO':
-                        content = '';
+                        content = 'Audio content processing not implemented yet';
                         break;
                     case 'VIDEO':
-                        content = '';
+                        content = 'Video content processing not implemented yet';
                         break;
                     case 'IMAGE':
-                        content = '';
+                        content = 'Image content processing not implemented yet';
                         break;
                 }
             }
