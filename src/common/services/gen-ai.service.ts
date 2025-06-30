@@ -14,6 +14,7 @@ import { DownloadService } from './download.service';
 import { VectorService } from './vector.service';
 
 type MessageType = 'CHAT' | 'CREATE' | 'UPDATE' | 'DELETE' | 'READ';
+type ReferenceCt = { id: number; uid: string; name: string; type: string; parentId: number | null; purpose: string; content: string };
 
 const FolderIcon = [
     'book',
@@ -45,8 +46,8 @@ const StudyMindState = Annotation.Root({
         Annotation<Array<{ name: string; type: LibraryItemType; parentId: number | null; metadata?: {}; prompt?: string }>>(),
     currentCreationIndex: Annotation<number>(),
     createdContent: Annotation<Array<LibraryItem>>(),
-    sessionContext: Annotation<Array<{ id: number; uid: string; name: string; type: string; parentId: number | null; content: string }>>(),
-    mentionContext: Annotation<Array<{ id: number; uid: string; name: string; type: string; parentId: number | null; content: string }>>(),
+    sessionContext: Annotation<Array<ReferenceCt>>(),
+    mentionContext: Annotation<Array<ReferenceCt>>(),
     response: Annotation<string>(),
     error: Annotation<string | null>(),
 });
@@ -295,10 +296,12 @@ export class GenAIService {
                     prevSummary: state.prevSummary,
                     userMessage: state.userMessage,
                     references: [...state.mentionContext, ...state.sessionContext].map(item => ({
+                        id: item.id,
                         uid: item.uid,
                         name: item.name,
                         type: item.type,
                         parentId: item.parentId == null ? 0 : item.parentId,
+                        purpose: item.purpose,
                     })),
                 }),
             );
@@ -818,7 +821,15 @@ export class GenAIService {
                 }
             }
 
-            result.push({ id: itemD.id, uid: itemD.uid, name: itemD.name, type: itemD.type, parentId: itemD.parentId, content });
+            result.push({
+                id: itemD.id,
+                uid: itemD.uid,
+                name: itemD.name,
+                type: itemD.type,
+                parentId: itemD.parentId,
+                purpose: item?.purpose,
+                content,
+            });
         }
 
         return result;
