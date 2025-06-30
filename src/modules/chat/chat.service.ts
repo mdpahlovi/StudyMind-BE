@@ -116,6 +116,8 @@ export class ChatService {
                     {
                         ...currMessage,
                         chatSessionId: chatSession[0].id,
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
                     },
                     {
                         role: 'ASSISTANT',
