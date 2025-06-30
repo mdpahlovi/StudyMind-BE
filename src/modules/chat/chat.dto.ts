@@ -18,12 +18,12 @@ export class MessageDto {
     message: string;
 
     @ApiProperty({ description: 'Message timestamp', example: new Date() })
-    @Transform(({ value }) => moment(value).subtract(6, 'hours').toISOString())
+    @Transform(({ value }) => moment(value).subtract(6, 'hours').toDate())
     @IsNotEmpty()
     createdAt: Date;
 
     @ApiProperty({ description: 'Message timestamp', example: new Date() })
-    @Transform(({ value }) => moment(value).subtract(6, 'hours').toISOString())
+    @Transform(({ value }) => moment(value).subtract(6, 'hours').toDate())
     @IsNotEmpty()
     updatedAt: Date;
 }
