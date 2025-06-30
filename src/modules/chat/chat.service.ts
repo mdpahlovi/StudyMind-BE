@@ -23,7 +23,7 @@ export class ChatService {
         const search = query.search || '';
 
         const chatSessionWhere = [eq(chatSessions.isActive, true), eq(chatSessions.userId, user.id)];
-        const chatSessionOrder = [desc(chatSessions.updatedAt)];
+        const chatSessionOrder = [desc(chatSessions.lastMessageAt)];
 
         if (search) {
             chatSessionWhere.push(ilike(chatSessions.title, `%${search}%`));
