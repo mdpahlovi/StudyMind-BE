@@ -48,3 +48,6 @@ lerna-debug.log*
 # Drizzle
 /src/database/migrations/*
 !src/database/migrations/.gitkeep
+
+# Docker
+.dockerignore

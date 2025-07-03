@@ -1,5 +1,5 @@
 import { CallHandler, ExecutionContext, HttpException, HttpStatus, Injectable, Logger, NestInterceptor } from '@nestjs/common';
-import * as moment from 'moment';
+import * as dayjs from 'dayjs';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
@@ -29,7 +29,7 @@ export class ErrorInterceptor implements NestInterceptor {
                     message,
                     error,
                     statusCode,
-                    timestamp: moment().format('DD MMM YYYY hh:mm'),
+                    timestamp: dayjs().format('DD MMM YYYY hh:mm'),
                     path: request.url,
                 };
 

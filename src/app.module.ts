@@ -14,7 +14,6 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
-import { PassportModule } from '@nestjs/passport';
 
 @Module({
     imports: [
@@ -30,7 +29,6 @@ import { PassportModule } from '@nestjs/passport';
             global: true,
             secret: configuration().jwt.secret,
         }),
-        PassportModule.register({ defaultStrategy: 'jwt' }),
         DatabaseModule,
         CommonModule,
         HealthModule,

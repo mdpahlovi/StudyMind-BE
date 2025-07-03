@@ -1,5 +1,5 @@
 import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
-import * as moment from 'moment';
+import * as dayjs from 'dayjs';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
@@ -21,7 +21,7 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, Response<T>> {
                 success: true,
                 message: data.message || 'Request successful',
                 data: data.data,
-                timestamp: moment().format('DD MMM YYYY hh:mm'),
+                timestamp: dayjs().format('DD MMM YYYY hh:mm'),
             })),
         );
     }

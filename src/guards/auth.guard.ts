@@ -7,10 +7,7 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-    constructor(
-        private jwtService: JwtService,
-        private reflector: Reflector,
-    ) {}
+    constructor(private jwtService: JwtService, private reflector: Reflector) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(), context.getClass()]);
@@ -30,6 +27,7 @@ export class AuthGuard implements CanActivate {
         // Try to authenticate with access token first
         const userFromAccessToken = await this.tryVerifyAccessToken(accessToken);
         if (userFromAccessToken) {
+            // @ts-ignore
             request.user = userFromAccessToken;
             return true;
         }
@@ -37,6 +35,7 @@ export class AuthGuard implements CanActivate {
         // If access token failed, try refresh token
         const userFromRefreshToken = await this.tryRefreshTokenFlow(refreshToken, response);
         if (userFromRefreshToken) {
+            // @ts-ignore
             request.user = userFromRefreshToken;
             return true;
         }

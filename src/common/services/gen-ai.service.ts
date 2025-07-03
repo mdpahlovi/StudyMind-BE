@@ -9,7 +9,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, eq, inArray, ne } from 'drizzle-orm';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 import { DownloadService } from './download.service';
 import { VectorService } from './vector.service';
 
