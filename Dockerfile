@@ -5,7 +5,7 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm ci
+RUN npm ci --prefer-offline
 
 COPY . .
 
@@ -18,7 +18,7 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --prefer-offline
 
 # Temporarily copy the .env file
 COPY .env ./

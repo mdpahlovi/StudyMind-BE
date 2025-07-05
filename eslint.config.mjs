@@ -16,20 +16,20 @@ export default tseslint.config(
             sourceType: 'commonjs',
             parserOptions: {
                 projectService: true,
-                tsconfigRootDir: import.meta.dirname
-            }
-        }
+                tsconfigRootDir: import.meta.dirname,
+            },
+        },
     },
     {
         plugins: {
-            drizzle
+            drizzle,
         },
         rules: {
             '@typescript-eslint/no-explicit-any': 'off',
             '@typescript-eslint/no-floating-promises': 'warn',
             '@typescript-eslint/no-unsafe-argument': 'warn',
             'drizzle/enforce-delete-with-where': 'error',
-            'drizzle/enforce-update-with-where': 'error'
-        }
-    }
+            'drizzle/enforce-update-with-where': 'error',
+        },
+    },
 );
