@@ -5,7 +5,7 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm ci --legacy-peer-deps
+RUN npm ci
 
 COPY . .
 
@@ -18,7 +18,10 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm ci --omit=dev --legacy-peer-deps
+RUN npm ci --omit=dev
+
+# Temporarily copy the .env file
+COPY .env ./
 
 COPY --from=build /app/dist ./dist
 
