@@ -9,7 +9,7 @@ export const chatSessions = pgTable('chat_sessions', {
         .notNull()
         .references(() => users.id),
     title: text('title').notNull(),
-    description: text('description'),
+    summary: text('summary'),
     lastMessage: text('last_message'),
     lastMessageAt: timestamp('last_message_at'),
     createdAt: timestamp('created_at').defaultNow(),

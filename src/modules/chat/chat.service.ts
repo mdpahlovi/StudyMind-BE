@@ -17,7 +17,7 @@ export class ChatService {
         private readonly downloadService: DownloadService,
     ) {}
 
-    async getChats(query: any, user: User) {
+    async getChats(query: Record<string, string>, user: User) {
         const db = this.databaseService.database;
 
         const search = query.search || '';
@@ -96,7 +96,7 @@ export class ChatService {
                     uid: uid,
                     userId: user.id,
                     title: response?.session?.title,
-                    description: response?.session?.description,
+                    summary: response?.session?.description,
                     lastMessage: currMessage.message,
                     lastMessageAt: new Date(),
                 })
@@ -138,6 +138,7 @@ export class ChatService {
         });
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async updateChatSession(uid: string, body: UpdateChatSessionDto, user: User) {
         const db = this.databaseService.database;
 
@@ -163,6 +164,7 @@ export class ChatService {
         return { message: 'Chat session updated successfully', data: updatedData[0] };
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async updateBulkChatSession(body: UpdateBulkChatSessionDto, user: User) {
         const db = this.databaseService.database;
 

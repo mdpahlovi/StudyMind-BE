@@ -18,18 +18,24 @@ export class MessageDto {
     message: string;
 
     @ApiProperty({ description: 'Message timestamp', example: new Date() })
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     @Transform(({ value }) => dayjs(value).subtract(6, 'hours').toDate())
     @IsNotEmpty()
     createdAt: Date;
 
     @ApiProperty({ description: 'Message timestamp', example: new Date() })
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     @Transform(({ value }) => dayjs(value).subtract(6, 'hours').toDate())
     @IsNotEmpty()
     updatedAt: Date;
 }
 
 export class RequestQueryDto {
-    @ApiProperty({ description: 'Message', example: 'Hello' })
+    @ApiProperty({ description: 'Chat session summary', example: 'The chat is about computer science' })
+    @IsOptional()
+    summary: string;
+
+    @ApiProperty({ description: 'Chat session message', example: 'Hello' })
     @ValidateNested({ each: true })
     @Type(() => MessageDto)
     message: MessageDto[];
