@@ -3,7 +3,6 @@ import { ConsoleLogger, ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import * as compression from 'compression';
 import helmet from 'helmet';
 import { ErrorInterceptor } from './common/interceptors/error.interceptor';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
@@ -19,7 +18,6 @@ async function bootstrap() {
 
     // Security
     app.use(helmet());
-    app.use(compression());
 
     // CORS
     app.enableCors({
@@ -73,4 +71,4 @@ async function bootstrap() {
     logger.log(`API Documentation: http://localhost:${port}/docs`, 'Main');
 }
 
-bootstrap();
+void bootstrap();

@@ -12,7 +12,7 @@ export class ChatController {
 
     @ApiOperation({ summary: 'Get all chat sessions' })
     @Get()
-    async getChats(@Query() query: any, @CurrentUser() user: User) {
+    async getChats(@Query() query: { [key: string]: string }, @CurrentUser() user: User) {
         return this.chatService.getChats(query, user);
     }
 

@@ -34,15 +34,13 @@ export class DownloadService {
             const { data, error } = await this.supabaseService.storage.upload(filePath, fs.readFileSync(tempPath), {
                 contentType: getMimeType(fileType),
             });
-            if (error) {
-                throw new HttpException(error.message, (error as any)?.statusCode ? Number((error as any)?.statusCode) : 500);
-            }
+            if (error) throw new HttpException(error.message, 500);
 
             fs.unlinkSync(tempPath);
             const { publicUrl: fileUrl } = this.supabaseService.storage.getPublicUrl(data.path).data;
             return { filePath, fileUrl, fileSize };
         } catch (error) {
-            throw new HttpException(`Failed to download file: ${error.message}`, HttpStatus.BAD_REQUEST);
+            throw new HttpException(`Failed to download file: ${error}`, HttpStatus.BAD_REQUEST);
         }
     }
 
@@ -60,15 +58,13 @@ export class DownloadService {
             const { data, error } = await this.supabaseService.storage.upload(filePath, fs.readFileSync(tempPath), {
                 contentType: getMimeType('pdf'),
             });
-            if (error) {
-                throw new HttpException(error.message, (error as any)?.statusCode ? Number((error as any)?.statusCode) : 500);
-            }
+            if (error) throw new HttpException(error.message, 500);
 
             fs.unlinkSync(tempPath);
             const { publicUrl: fileUrl } = this.supabaseService.storage.getPublicUrl(data.path).data;
             return { filePath, fileUrl, fileSize };
         } catch (error) {
-            throw new HttpException(`Failed to download PDF: ${error.message}`, HttpStatus.BAD_REQUEST);
+            throw new HttpException(`Failed to download file: ${error}`, HttpStatus.BAD_REQUEST);
         }
     }
 }

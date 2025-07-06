@@ -1,6 +1,6 @@
 import { DatabaseService } from '@/database/database.service';
 import * as schema from '@/database/schemas';
-import { LibraryItem, libraryItem, LibraryItemType } from '@/database/schemas/library.schema';
+import { libraryItem, LibraryItem, LibraryItemMetadata, LibraryItemType } from '@/database/schemas/library.schema';
 import { MessageDto } from '@/modules/chat/chat.dto';
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
@@ -51,7 +51,7 @@ const StudyMindState = Annotation.Root({
             name: string;
             type: LibraryItemType;
             parentId: number | null;
-            metadata?: { [key: string]: string };
+            metadata?: LibraryItemMetadata;
             prompt?: string;
         }>
     >(),
@@ -91,34 +91,34 @@ export class GenAIService {
     private buildGraph() {
         return (
             new StateGraph(StudyMindState)
-                // Added all the nodes
-                .addNode('identifyUserIntent', this.identifyUserIntent.bind(this))
-                .addNode('resolveMentions', this.resolveMentions.bind(this))
-                .addNode('planContentQueue', this.planContentQueue.bind(this))
-                .addNode('createContentQueue', this.createContentQueue.bind(this))
-                .addNode('createOneContent', this.createOneContent.bind(this))
-                .addNode('checkCreationProcess', this.checkCreationProcess.bind(this))
-                .addNode('analyzeContent', this.analyzeContent.bind(this))
-                .addNode('contextualChat', this.contextualChat.bind(this))
-                .addNode('generateUserReply', this.generateUserReply.bind(this))
+                // Use arrow functions instead of bind
+                .addNode('identifyUserIntent', state => this.identifyUserIntent(state))
+                .addNode('resolveMentions', state => this.resolveMentions(state))
+                .addNode('planContentQueue', state => this.planContentQueue(state))
+                .addNode('createContentQueue', state => this.createContentQueue(state))
+                .addNode('createOneContent', state => this.createOneContent(state))
+                .addNode('checkCreationProcess', state => this.checkCreationProcess(state))
+                .addNode('analyzeContent', state => this.analyzeContent(state))
+                .addNode('contextualChat', state => this.contextualChat(state))
+                .addNode('generateUserReply', state => this.generateUserReply(state))
 
-                // Added all the edges
+                // Same for conditional edges
                 .addEdge(START, 'identifyUserIntent')
-                .addConditionalEdges('identifyUserIntent', this.routeAfterRefs.bind(this), {
+                .addConditionalEdges('identifyUserIntent', state => this.routeAfterRefs(state), {
                     CHAT: 'contextualChat',
                     CREATE: 'resolveMentions',
                     UPDATE: 'generateUserReply',
                     DELETE: 'generateUserReply',
                     READ: 'resolveMentions',
                 })
-                .addConditionalEdges('resolveMentions', this.routeAfterContext.bind(this), {
+                .addConditionalEdges('resolveMentions', state => this.routeAfterContext(state), {
                     CREATE: 'planContentQueue',
                     READ: 'analyzeContent',
                 })
                 .addEdge('planContentQueue', 'createContentQueue')
                 .addEdge('createContentQueue', 'createOneContent')
                 .addEdge('createOneContent', 'checkCreationProcess')
-                .addConditionalEdges('checkCreationProcess', this.routeContentProgress.bind(this), {
+                .addConditionalEdges('checkCreationProcess', state => this.routeContentProgress(state), {
                     CONTINUE: 'createOneContent',
                     COMPLETE: 'generateUserReply',
                 })

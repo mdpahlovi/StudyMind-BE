@@ -17,7 +17,7 @@ export class ChatService {
         private readonly downloadService: DownloadService,
     ) {}
 
-    async getChats(query: Record<string, string>, user: User) {
+    async getChats(query: { [key: string]: string }, user: User) {
         const db = this.databaseService.database;
 
         const search = query.search || '';

@@ -22,7 +22,7 @@ export class VectorService {
         this.initialize();
     }
 
-    private async initialize() {
+    private initialize() {
         this.pinecone = new Pinecone({
             apiKey: this.configService.get<string>('pinecone.apiKey'),
         });
@@ -71,7 +71,7 @@ export class VectorService {
                     return doc;
                 });
         } catch (error) {
-            throw new BadRequestException(`Failed to load pdf: ${error.message}`);
+            throw new BadRequestException(`Failed to load pdf: ${error}`);
         }
     }
 
@@ -98,7 +98,7 @@ export class VectorService {
 
             return vectorIds;
         } catch (error) {
-            throw new BadRequestException(`Failed to embed pdf: ${error.message}`);
+            throw new BadRequestException(`Failed to embed pdf: ${error}`);
         }
     }
 
@@ -110,12 +110,12 @@ export class VectorService {
 
             if (results.length === 0) return 'No relevant content found for your query.';
 
-            const combineContent = results.map(([document, score]) => document.pageContent).join('\n\n---\n\n');
+            const combineContent = results.map(([document]) => document.pageContent).join('\n\n---\n\n');
 
             console.log(`Found ${results.length} results for itemUid: ${itemUid}`);
             return combineContent;
         } catch (error) {
-            throw new BadRequestException(`Failed to search contents: ${error.message}`);
+            throw new BadRequestException(`Failed to search contents: ${error}`);
         }
     }
 }

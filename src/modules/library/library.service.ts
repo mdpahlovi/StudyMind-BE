@@ -2,7 +2,7 @@ import { SupabaseService } from '@/common/services/supabase.service';
 import { VectorService } from '@/common/services/vector.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
-import { libraryItem } from '@/database/schemas/library.schema';
+import { libraryItem, LibraryItemType } from '@/database/schemas/library.schema';
 import { CreateLibraryItemDto, UpdateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
@@ -16,7 +16,7 @@ export class LibraryService {
         private readonly vectorService: VectorService,
     ) {}
 
-    async getLibraryItems(query: any, user: User) {
+    async getLibraryItems(query: { [key: string]: string }, user: User) {
         const db = this.databaseService.database;
 
         const page = query.page ? Number(query.page) : 1;
@@ -65,11 +65,11 @@ export class LibraryService {
         };
     }
 
-    async getLibraryItemsByType(query: any, user: User) {
+    async getLibraryItemsByType(query: { [key: string]: string }, user: User) {
         const db = this.databaseService.database;
 
         const search = query.search || '';
-        const type = query.type || '';
+        const type = (query.type as LibraryItemType | 'MEDIA') || '';
         const page = query.page ? Number(query.page) : 1;
         const limit = query.limit ? Number(query.limit) : 12;
         const offset = (page - 1) * limit;
@@ -114,7 +114,7 @@ export class LibraryService {
         };
     }
 
-    async getLibraryItemsWithPath(query: any, user: User) {
+    async getLibraryItemsWithPath(query: { [key: string]: string }, user: User) {
         const db = this.databaseService.database;
         let libraryItemWhere = '';
 
@@ -167,6 +167,7 @@ export class LibraryService {
         };
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async getLibraryItemByUid(uid: string, user: User) {
         const db = this.databaseService.database;
 
@@ -248,6 +249,7 @@ export class LibraryService {
         return { message: 'Library item updated successfully', data: updatedData[0] };
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async updateBulkLibraryItems(body: UpdateBulkLibraryItemsDto, user: User) {
         const db = this.databaseService.database;
 

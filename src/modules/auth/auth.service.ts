@@ -1,6 +1,6 @@
 import { HashService } from '@/common/services/hash.service';
 import { DatabaseService } from '@/database/database.service';
-import { CreateUser, User, users } from '@/database/schemas/user.schema';
+import { CreateUser, users } from '@/database/schemas/user.schema';
 import { LoginUserDto, RegisterUserDto } from '@/modules/auth/auth.dto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -115,17 +115,5 @@ export class AuthService {
             const [createdUser] = await db.insert(users).values(createUserPayload).returning();
             return createdUser;
         }
-    }
-
-    async loginOAuth(user: User) {
-        delete user.password;
-        return {
-            message: 'User logged in successfully',
-            data: {
-                user,
-                accessToken: this.jwtService.sign(user, { expiresIn: '1h' }),
-                refreshToken: this.jwtService.sign(user, { expiresIn: '7d' }),
-            },
-        };
     }
 }

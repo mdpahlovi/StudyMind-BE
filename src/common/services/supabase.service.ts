@@ -3,7 +3,6 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient } from '@supabase/supabase-js';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 @Injectable()
