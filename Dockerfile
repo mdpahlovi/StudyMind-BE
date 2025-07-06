@@ -16,6 +16,8 @@ FROM node:22-alpine AS deploy
 
 WORKDIR /app
 
+RUN mkdir -p /app/public
+
 COPY package*.json ./
 
 RUN npm ci --omit=dev --prefer-offline
