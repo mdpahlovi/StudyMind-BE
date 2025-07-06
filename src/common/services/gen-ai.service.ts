@@ -41,7 +41,7 @@ const FolderIcon = [
 
 const StudyMindState = Annotation.Root({
     userId: Annotation<number>(),
-    session: Annotation<{ uid: string; title: string; description: string }>(),
+    session: Annotation<{ uid: string; title: string; summary: string }>(),
     userMessage: Annotation<string>(),
     prevMessage: Annotation<Array<MessageDto>>(),
     prevSummary: Annotation<string>(),
@@ -101,6 +101,7 @@ export class GenAIService {
                 .addNode('analyzeContent', state => this.analyzeContent(state))
                 .addNode('contextualChat', state => this.contextualChat(state))
                 .addNode('generateUserReply', state => this.generateUserReply(state))
+                .addNode('updateChatSession', state => this.updateChatSession(state))
 
                 // Same for conditional edges
                 .addEdge(START, 'identifyUserIntent')
@@ -124,18 +125,16 @@ export class GenAIService {
                 })
                 .addEdge('contextualChat', 'generateUserReply')
                 .addEdge('analyzeContent', 'generateUserReply')
-                .addEdge('generateUserReply', END)
+                .addEdge('generateUserReply', 'updateChatSession')
+                .addEdge('updateChatSession', END)
                 .compile()
         );
     }
 
     private async identifyUserIntent(state: typeof StudyMindState.State) {
         try {
-            const IntentSchema = z.object({
-                title: z.string(),
-                description: z.string(),
-                messageType: z.enum(['CHAT', 'CREATE', 'UPDATE', 'DELETE', 'READ']),
-            });
+            const IntentMessageTypes = ['CREATE', 'UPDATE', 'DELETE', 'READ', 'CHAT'];
+            const IntentSchema = z.object({ messageType: z.enum(IntentMessageTypes) });
             const structureModel = this.genAI.withStructuredOutput(IntentSchema);
             const promptTemplate = ChatPromptTemplate.fromTemplate(
                 `You are StudyMind AI's intent classifier. Classify user's intent and respond accordingly.
@@ -146,9 +145,6 @@ export class GenAIService {
                 3. UPDATE: When user wants to modify existing content using update keywords (edit, modify, change, update, revise, improve)  
                 4. DELETE: When user wants to remove/delete existing content using delete keywords (delete, remove, trash, eliminate)
                 5. CHAT (Default): General questions without specific content management intent
-
-                Title: Be specific and educational-focused (e.g., "Calculus Derivative and Integral").
-                Description: Capture the user's learning goal, intent and subject area.
                 
                 Previous Chat Summary: {prevSummary}
                 User Message: {userMessage}`,
@@ -156,23 +152,18 @@ export class GenAIService {
 
             const response = await structureModel.invoke(
                 await promptTemplate.formatMessages({
-                    prevSummary: state.prevSummary,
+                    prevSummary: state.prevSummary || 'No previous summary',
                     userMessage: state.userMessage,
                 }),
             );
 
-            if (!response.title || !response.description || !response.messageType) {
+            if (IntentMessageTypes.includes(response.messageType) === false) {
                 throw new BadRequestException('Failed to identify user intent');
             }
 
             console.log(`[Node] Identify User Intent: [${response.messageType}]`);
             return {
                 ...state,
-                session: {
-                    ...state.session,
-                    title: response.title,
-                    description: response.description,
-                },
                 messageType: response.messageType,
             };
         } catch (error) {
@@ -232,7 +223,7 @@ export class GenAIService {
 
             const response = await structureModel.invoke(
                 await promptTemplate.formatMessages({
-                    prevSummary: state.prevSummary,
+                    prevSummary: state.prevSummary || 'No previous summary',
                     userMessage: state.userMessage,
                     messageType: state.messageType,
                 }),
@@ -304,7 +295,7 @@ export class GenAIService {
 
             const response = await structureModel.invoke(
                 await promptTemplate.formatMessages({
-                    prevSummary: state.prevSummary,
+                    prevSummary: state.prevSummary || 'No previous summary',
                     userMessage: state.userMessage,
                     references: [...state.mentionContext, ...state.sessionContext].map(item => ({
                         id: item.id,
@@ -317,11 +308,7 @@ export class GenAIService {
                 }),
             );
 
-            if (
-                !response.contentQueue ||
-                !response.contentQueue.length ||
-                !response.contentQueue.every(item => item.name && item.type && typeof item.parentId === 'number')
-            ) {
+            if (!response.contentQueue.length) {
                 throw new BadRequestException('Failed to plan content structure');
             }
 
@@ -332,7 +319,7 @@ export class GenAIService {
                 currentCreationIndex: 0,
             };
         } catch (error) {
-            this.logger.error('Plan Content Structure: ', error);
+            this.logger.error('Plan Content Structure:  ', error);
             throw new BadRequestException('Failed to plan content structure');
         }
     }
@@ -361,7 +348,6 @@ export class GenAIService {
                 });
 
                 const structureModel = this.genAI.withStructuredOutput(CreateContentSchema);
-
                 const promptTemplate = ChatPromptTemplate.fromTemplate(`
                 You are StudyMind AI. I have already analyzed the user's request and planned the required content structure. 
                 Now, based on the content type, generate the appropriate metadata and prompt for this specific item:
@@ -416,7 +402,7 @@ export class GenAIService {
 
                 const response = await structureModel.invoke(
                     await promptTemplate.formatMessages({
-                        prevSummary: state.prevSummary,
+                        prevSummary: state.prevSummary || 'No previous summary',
                         userMessage: state.userMessage,
                         contentItem: contentItem,
                         references: [...state.mentionContext, ...state.sessionContext].map(item => ({
@@ -447,7 +433,7 @@ export class GenAIService {
                 contentCreationQueue: contentQueue,
             };
         } catch (error) {
-            this.logger.error('Create Content Queue: ', error);
+            this.logger.error('Create Content Queue:  ', error);
             throw new BadRequestException('Failed to create content queue');
         }
     }
@@ -656,9 +642,7 @@ export class GenAIService {
                 console.log('[Node] Generate User Reply');
                 return {
                     ...state,
-                    response: `${response.text.replace(/@mention\s*{[^}]+}|@created\s*{[^}]+}/g, '')}\n${state.createdContent
-                        .map(content => `@created ${JSON.stringify({ ...content, metadata: null })}`)
-                        .join('\n')}`,
+                    response: response.text.replace(/@mention\s*{[^}]+}|@created\s*{[^}]+}/g, ''),
                 };
             }
         } catch (error) {
@@ -666,6 +650,87 @@ export class GenAIService {
             throw new BadRequestException('Failed to generate user reply');
         }
     }
+    private async updateChatSession(state: typeof StudyMindState.State) {
+        try {
+            const SummarySchema = z.object({ title: z.string(), summary: z.string() });
+            const structureModel = this.genAI.withStructuredOutput(SummarySchema);
+            const promptTemplate = ChatPromptTemplate.fromTemplate(
+                `You are StudyMind AI, an educational assistant. Generate a title and summary of the current conversation that captures the sessions context.
+
+                ## TITLE: 
+                - Use specific educational terms (e.g., "Calculus: Derivatives", "Biology: Cell Structure")
+                - Include subject + topic, under 60 characters
+
+                ## SUMMARY GUIDELINES:
+                Create a structured summary that includes:
+
+                **Learning Context:**
+                - Primary subject(s) and topics discussed
+                - Educational level or complexity (if apparent)
+                - Learning objectives or questions addressed
+
+                **Content Activity:**
+                - All @created content with their types and purposes
+                - All @mention content and how they were used
+                - Content relationships (e.g., "@created {{"uid": "...", "name": "Organic Chemistry Flashcards", "type": "FLASHCARD"}} created from @mention {{"uid": "...", "name": "Organic Chemistry Notes", "type": "NOTE"}}")
+
+                **Learning Progress:**
+                - Key concepts explained or clarified
+                - Problems solved or questions answered
+                - Next steps or follow-up actions identified
+
+                ## CRITICAL REQUIREMENTS:
+                - Include all @created and @mention tags as they appear in conversation
+                - Never fabricate or hallucinate content references
+
+                ## CONVERSATION DATA:
+                **User Message:** {userMessage}
+                **Intent Type:** {messageType}
+                **AI Response:** {response}
+                
+                **Created Content:**
+                {createdContent}
+
+                **Previous Summary:** {prevSummary}`,
+            );
+
+            const response = await structureModel.invoke(
+                await promptTemplate.formatMessages({
+                    userMessage: state.userMessage,
+                    messageType: state.messageType,
+                    response: state.response,
+                    createdContent:
+                        state.createdContent.length > 0
+                            ? state.createdContent
+                                  .map(item => `@created {"uid": "${item.uid}", "name": "${item.name}", "type": "${item.type}"}`)
+                                  .join('\n')
+                            : 'No content created',
+                    prevSummary: state.prevSummary || 'No previous summary',
+                }),
+            );
+
+            if (!response?.title || !response?.summary) {
+                throw new BadRequestException('Failed to update chat session');
+            }
+
+            return {
+                ...state,
+                session: {
+                    ...state.session,
+                    title: response.title,
+                    summary: response.summary,
+                },
+                response: `${state.response}\n${state.createdContent
+                    .map(content => `@created ${JSON.stringify({ ...content, metadata: null })}`)
+                    .join('\n')}`,
+            };
+        } catch (error) {
+            this.logger.error('Update Chat Session:', error);
+            throw new BadRequestException('Failed to update chat session ');
+        }
+    }
+
+    // 🎯 Routing
     private routeAfterRefs(state: typeof StudyMindState.State) {
         console.log('[Route] Route After Refs');
         return state.messageType;
@@ -685,17 +750,18 @@ export class GenAIService {
     async generateGraphResponses(
         userId: number,
         sessionUid: string,
-        chatMessages: MessageDto[],
+        chatSummary: string,
+        chatMessage: MessageDto[],
         dbTxn: Transaction,
     ): Promise<typeof StudyMindState.State> {
         try {
             this.dbTxn = dbTxn;
             const initialState: typeof StudyMindState.State = {
                 userId: userId,
-                session: { uid: sessionUid, title: '', description: '' },
-                userMessage: chatMessages[chatMessages.length - 1].message,
-                prevMessage: chatMessages.slice(0, -1),
-                prevSummary: await this.generateSummary(chatMessages.slice(0, -1)),
+                session: { uid: sessionUid, title: '', summary: '' },
+                userMessage: chatMessage[chatMessage.length - 1].message,
+                prevMessage: chatMessage.slice(0, -1),
+                prevSummary: chatSummary,
                 messageType: 'CHAT',
                 contentCreationQueue: [],
                 currentCreationIndex: 0,
@@ -727,34 +793,6 @@ export class GenAIService {
             this.logger.error('Generate Response: ', error);
             throw new BadRequestException('Failed to generate response');
         }
-    }
-
-    async generateSummary(chatHistory: MessageDto[]) {
-        if (chatHistory.length === 0) return '';
-
-        const recentConversation = chatHistory
-            .slice(-10) // Limit to the last 10 messages
-            .map(msg => `${msg.role}: ${msg.message}`)
-            .join('\n');
-
-        const response = await this.genAI.invoke([
-            new SystemMessage(`You are StudyMind AI, an educational assistant. Summarize the key context from this conversation in a few sentences. FOCUS ON:
-            - Main topics discussed
-            - Any content @created or @mention in the conversation
-            - Current learning goals or questions
-            - Educational subject areas
-
-            IMPORTANT: Must include all @created and @mention tags that actually appear in the conversation. Do not hallucinate content references.
-
-            Take @created and @mention tags like this:
-            - @created {"uid": "...", "name": "...", "type": "..."}
-            - @mention {"uid": "...", "name": "...", "type": "..."}
-            `),
-            new HumanMessage(`Conversation:\n${recentConversation}`),
-        ]);
-
-        console.log('Summary');
-        return response.text;
     }
 
     private async putInState(
