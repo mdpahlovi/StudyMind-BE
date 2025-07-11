@@ -20,15 +20,10 @@ export default () => ({
         description: process.env.SWAGGER_DESCRIPTION,
         version: process.env.SWAGGER_VERSION,
     },
-    facebook: {
-        appID: process.env.FACEBOOK_APP_ID,
-        appSecret: process.env.FACEBOOK_APP_SECRET,
-        callbackURL: process.env.FACEBOOK_CALLBACK_URL,
-    },
-    google: {
-        clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: process.env.GOOGLE_CALLBACK_URL,
+    cloudinary: {
+        cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+        apiKey: process.env.CLOUDINARY_API_KEY,
+        apiSecret: process.env.CLOUDINARY_API_SECRET,
     },
     supabase: {
         url: process.env.SUPABASE_URL,
@@ -43,5 +38,8 @@ export default () => ({
     pinecone: {
         apiKey: process.env.PINECONE_API_KEY,
         index: process.env.PINECONE_INDEX,
+    },
+    stable_duffusion: {
+        apiKey: process.env.STABLE_DIFFUSION_API_KEY,
     },
 });

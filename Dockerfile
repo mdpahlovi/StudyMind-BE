@@ -9,23 +9,20 @@ RUN npm ci --prefer-offline
 
 COPY . .
 
-RUN npm run build
+RUN npm run build && \
+    echo "Build complete"
 
 # Take the build output and run it
-FROM node:22-alpine AS deploy
+FROM zenika/alpine-chrome:with-puppeteer
 
 WORKDIR /app
 
 RUN mkdir -p /app/public
 
-COPY package*.json ./
-
-RUN npm ci --omit=dev --prefer-offline
-
-# Temporarily copy the .env file
-COPY .env ./
-
+COPY --from=build /app/package*.json ./
+COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/.env ./
 
 EXPOSE 4000
 
