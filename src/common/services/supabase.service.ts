@@ -1,20 +1,20 @@
 import { getMimeType } from '@/utils/getMimeType';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as fs from 'fs';
 import * as path from 'path';
 
 @Injectable()
 export class SupabaseService {
-    constructor(private readonly configService: ConfigService) {}
+    private readonly supabase: SupabaseClient;
 
-    private supabaseUrl = this.configService.get<string>('supabase.url');
-    private supabaseKey = this.configService.get<string>('supabase.key');
+    constructor(private readonly configService: ConfigService) {
+        const supabaseUrl = this.configService.get<string>('supabase.url');
+        const supabaseKey = this.configService.get<string>('supabase.key');
 
-    private supabase = createClient(this.supabaseUrl, this.supabaseKey);
-
-    public storage = this.supabase.storage.from('studymind');
+        this.supabase = createClient(supabaseUrl, supabaseKey);
+    }
 
     async uploadFile(file: Express.Multer.File, fileType: string) {
         const fileName = file.originalname.replace(/\.[^/.]+$/, '');
@@ -40,5 +40,9 @@ export class SupabaseService {
         fs.writeFileSync(tempPath, Buffer.from(await data.arrayBuffer()));
 
         return tempPath;
+    }
+
+    get storage() {
+        return this.supabase.storage.from('studymind');
     }
 }

@@ -1,7 +1,11 @@
 node_modules
 dist
 
+.dockerignore
 .git
 .gitignore
+.prettierrc
+Dockerfile
+eslint.config.js
 
 readme.md

@@ -15,7 +15,7 @@ export class DatabaseService {
         return this.db;
     }
 
-    async query(sql: string, params?: any[]) {
+    async query(sql: string) {
         return this.db.execute(sql);
     }
 
@@ -27,6 +27,7 @@ export class DatabaseService {
         try {
             await this.db.execute('SELECT 1');
             return true;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
         } catch (error) {
             return false;
         }

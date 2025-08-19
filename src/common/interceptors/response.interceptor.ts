@@ -1,5 +1,6 @@
 import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
-import * as dayjs from 'dayjs';
+import dayjs from 'dayjs';
+import { Request } from 'express';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
@@ -14,10 +15,11 @@ export interface Response<T> {
 export class ResponseInterceptor<T> implements NestInterceptor<T, Response<T>> {
     private readonly logger = new Logger(ResponseInterceptor.name);
     intercept(context: ExecutionContext, next: CallHandler): Observable<Response<T>> {
-        this.logger.debug(`[${200}] ${context.switchToHttp().getRequest().method} ${context.switchToHttp().getRequest().url}`);
+        const request = context.switchToHttp().getRequest<Request>();
+        this.logger.debug(`[${200}] ${request.method} ${request.url}`);
 
         return next.handle().pipe(
-            map(data => ({
+            map((data: Response<T>) => ({
                 success: true,
                 message: data.message || 'Request successful',
                 data: data.data,

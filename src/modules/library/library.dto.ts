@@ -1,4 +1,4 @@
-import { LibraryItemMetadata, LibraryItemType } from '@/database/schemas/library.schema';
+import type { LibraryItemMetadata, LibraryItemType } from '@/database/schemas/library.schema';
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsOptional } from 'class-validator';

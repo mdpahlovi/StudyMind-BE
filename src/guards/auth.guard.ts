@@ -1,9 +1,14 @@
 import { User } from '@/database/schemas';
+import { IS_PUBLIC_KEY } from '@/decorators/public.decorator';
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { Request, Response } from 'express';
-import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+
+type JwtPayload = {
+    iat: number;
+    exp: number;
+} & User;
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -30,7 +35,6 @@ export class AuthGuard implements CanActivate {
         // Try to authenticate with access token first
         const userFromAccessToken = await this.tryVerifyAccessToken(accessToken);
         if (userFromAccessToken) {
-            // @ts-ignore
             request.user = userFromAccessToken;
             return true;
         }
@@ -38,7 +42,6 @@ export class AuthGuard implements CanActivate {
         // If access token failed, try refresh token
         const userFromRefreshToken = await this.tryRefreshTokenFlow(refreshToken, response);
         if (userFromRefreshToken) {
-            // @ts-ignore
             request.user = userFromRefreshToken;
             return true;
         }
@@ -58,13 +61,14 @@ export class AuthGuard implements CanActivate {
 
     private async verifyToken(token: string): Promise<User> {
         try {
-            const payload = await this.jwtService.verifyAsync(token);
+            const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
 
             // Clean up JWT metadata
             delete payload.iat;
             delete payload.exp;
 
-            return payload as User;
+            return payload;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
         } catch (error) {
             throw new UnauthorizedException('Invalid token');
         }
@@ -73,6 +77,7 @@ export class AuthGuard implements CanActivate {
     private async tryVerifyAccessToken(accessToken: string | null): Promise<User | null> {
         try {
             return await this.verifyToken(accessToken);
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
         } catch (error) {
             return null;
         }
@@ -89,6 +94,7 @@ export class AuthGuard implements CanActivate {
             response.setHeader('x-access-token', newAccessToken);
 
             return user;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
         } catch (error) {
             throw new UnauthorizedException('Invalid refresh token');
         }

@@ -1,4 +1,4 @@
-import { User } from '@/database/schemas';
+import { type User } from '@/database/schemas';
 import { CurrentUser } from '@/decorators/current-user.decorator';
 import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';

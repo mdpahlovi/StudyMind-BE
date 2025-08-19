@@ -1,5 +1,5 @@
 import { SupabaseService } from '@/common/services/supabase.service';
-import { User } from '@/database/schemas';
+import { type User } from '@/database/schemas';
 import { CurrentUser } from '@/decorators/current-user.decorator';
 import { CreateLibraryItemDto, UpdateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { LibraryService } from '@/modules/library/library.service';
@@ -17,19 +17,19 @@ export class LibraryController {
 
     @ApiOperation({ summary: 'Retrieve all library item' })
     @Get()
-    async getLibraryItems(@Query() query: any, @CurrentUser() user: User) {
+    async getLibraryItems(@Query() query: Record<string, string>, @CurrentUser() user: User) {
         return this.libraryService.getLibraryItems(query, user);
     }
 
     @ApiOperation({ summary: 'Retrieve library items by type' })
     @Get('by-type')
-    async getLibraryItemsByType(@Query() query: any, @CurrentUser() user: User) {
+    async getLibraryItemsByType(@Query() query: Record<string, string>, @CurrentUser() user: User) {
         return this.libraryService.getLibraryItemsByType(query, user);
     }
 
     @ApiOperation({ summary: 'Retrieve library items with path' })
     @Get('with-path')
-    async getLibraryItemsWithPath(@Query() query: any, @CurrentUser() user: User) {
+    async getLibraryItemsWithPath(@Query() query: Record<string, string>, @CurrentUser() user: User) {
         return this.libraryService.getLibraryItemsWithPath(query, user);
     }
 

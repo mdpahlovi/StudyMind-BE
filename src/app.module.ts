@@ -8,7 +8,6 @@ import { AuthModule } from '@/modules/auth/auth.module';
 import { ChatModule } from '@/modules/chat/chat.module';
 import { HealthModule } from '@/modules/health/health.module';
 import { LibraryModule } from '@/modules/library/library.module';
-import { UserModule } from '@/modules/user/user.module';
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
@@ -32,7 +31,6 @@ import { JwtModule } from '@nestjs/jwt';
         DatabaseModule,
         CommonModule,
         HealthModule,
-        UserModule,
         AuthModule,
         LibraryModule,
         ChatModule,

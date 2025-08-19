@@ -13,7 +13,7 @@ export const DrizzleProvider = 'DrizzleProvider';
         {
             provide: DrizzleProvider,
             inject: [ConfigService],
-            useFactory: async (configService: ConfigService) => {
+            useFactory: (configService: ConfigService) => {
                 const databaseUrl = configService.get<string>('database.url');
 
                 if (!databaseUrl) {
