@@ -98,13 +98,14 @@ export class ChatService {
                     title: response?.session?.title,
                     summary: response?.session?.summary,
                     lastMessage: currMessage.message,
-                    lastMessageAt: new Date(),
+                    lastMessageAt: currMessage.createdAt,
                 })
                 .onConflictDoUpdate({
                     target: [chatSessions.uid],
                     set: {
+                        summary: response?.session?.summary,
                         lastMessage: currMessage.message,
-                        lastMessageAt: new Date(),
+                        lastMessageAt: currMessage.createdAt,
                     },
                 })
                 .returning();
@@ -121,6 +122,8 @@ export class ChatService {
                         role: 'ASSISTANT',
                         chatSessionId: chatSession[0].id,
                         message: response.response,
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
                     },
                 ])
                 .returning();

@@ -2,6 +2,7 @@ import { DownloadService } from '@/common/services/download.service';
 import { VectorService } from '@/common/services/vector.service';
 import * as schema from '@/database/schemas';
 import {
+    ChatMessageRole,
     FlashcardMetadata,
     ImageMetadata,
     libraryItem,
@@ -9,7 +10,7 @@ import {
     LibraryItemMetadata,
     LibraryItemType,
     NoteMetadata,
-} from '@/database/schemas/library.schema';
+} from '@/database/schemas';
 import { MessageDto } from '@/modules/chat/chat.dto';
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
@@ -614,14 +615,21 @@ export class GenAIService {
     }
     private async updateChatSession(state: typeof StudyMindState.State) {
         try {
+            const messages: { role: ChatMessageRole; message: string }[] = [
+                ...state.prevMessage.map(({ role, message }) => ({ role, message })),
+                { role: 'USER', message: state.userMessage },
+                { role: 'ASSISTANT', message: state.response },
+            ];
+
             const SummarySchema = z.object({ title: z.string(), summary: z.string() });
             const structureModel = this.genAI.withStructuredOutput(SummarySchema);
             const promptTemplate = ChatPromptTemplate.fromTemplate(
-                `You are StudyMind AI, an educational assistant. Generate a title and summary of the current conversation that captures the sessions context.
+                `You are StudyMind AI, an educational assistant. Generate a title and summary of the current conversation that captures the session’s context.
 
-                ## TITLE: 
+                ## TITLE:
                 - Use specific educational terms (e.g., "Calculus: Derivatives", "Biology: Cell Structure")
-                - Include subject + topic, under 60 characters
+                - Include subject + topic
+                - Must be fewer than 60 characters
 
                 ## SUMMARY GUIDELINES:
                 Create a structured summary that includes:
@@ -630,11 +638,6 @@ export class GenAIService {
                 - Primary subject(s) and topics discussed
                 - Educational level or complexity (if apparent)
                 - Learning objectives or questions addressed
-
-                **Content Activity:**
-                - All @created content with their types and purposes
-                - All @mention content and how they were used
-                - Content relationships (e.g., "@created {{"uid": "...", "name": "Organic Chemistry Flashcards", "type": "FLASHCARD"}} created from @mention {{"uid": "...", "name": "Organic Chemistry Notes", "type": "NOTE"}}")
 
                 **Learning Progress:**
                 - Key concepts explained or clarified
@@ -646,33 +649,26 @@ export class GenAIService {
                 - Never fabricate or hallucinate content references
 
                 ## CONVERSATION DATA:
-                **User Message:** {userMessage}
-                **Intent Type:** {messageType}
-                **AI Response:** {response}
+                **Messages:** {messages}
                 
-                **Created Content:**
-                {createdContent}
-
-                **Previous Summary:** {prevSummary}`,
+                **Current Created Content (if any):**
+                {createdContent}`,
             );
 
             const response = await structureModel.invoke(
                 await promptTemplate.formatMessages({
-                    userMessage: state.userMessage,
-                    messageType: state.messageType,
-                    response: state.response,
+                    messages: JSON.stringify(messages, null, 2),
                     createdContent:
                         state.createdContent.length > 0
                             ? state.createdContent
                                   .map(item => `@created {"uid": "${item.uid}", "name": "${item.name}", "type": "${item.type}"}`)
                                   .join('\n')
                             : 'No content created',
-                    prevSummary: state.prevSummary || 'No previous summary',
                 }),
             );
 
             if (!response?.title || !response?.summary) {
-                throw new BadRequestException('Failed to update chat session');
+                throw new BadRequestException('Failed to update chat session: invalid response structure');
             }
 
             return {
@@ -687,8 +683,8 @@ export class GenAIService {
                     .join('\n')}`,
             };
         } catch (error) {
-            this.logger.error('Update Chat Session:', error);
-            throw new BadRequestException('Failed to update chat session ');
+            this.logger.error('Update Chat Session Error:', error);
+            throw new BadRequestException('Failed to update chat session');
         }
     }
 
