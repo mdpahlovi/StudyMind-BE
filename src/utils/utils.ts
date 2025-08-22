@@ -1,4 +1,4 @@
-export function getMimeType(fileType: string) {
+export function GetMimeType(fileType: string) {
     switch (fileType) {
         // Document formats
         case 'pdf':

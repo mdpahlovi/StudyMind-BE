@@ -1,43 +1,30 @@
-import { DatabaseService } from '@/database/database.service';
+import { DownloadService } from '@/common/services/download.service';
+import { VectorService } from '@/common/services/vector.service';
 import * as schema from '@/database/schemas';
-import { libraryItem, LibraryItem, LibraryItemMetadata, LibraryItemType } from '@/database/schemas/library.schema';
+import {
+    FlashcardMetadata,
+    ImageMetadata,
+    libraryItem,
+    LibraryItem,
+    LibraryItemMetadata,
+    LibraryItemType,
+    NoteMetadata,
+} from '@/database/schemas/library.schema';
 import { MessageDto } from '@/modules/chat/chat.dto';
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
-import { ChatOpenAI } from '@langchain/openai';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, ExtractTablesWithRelations, inArray, ne } from 'drizzle-orm';
+import { and, eq, ExtractTablesWithRelations, inArray } from 'drizzle-orm';
 import { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
 import { PgTransaction } from 'drizzle-orm/pg-core';
 import * as z from 'zod/v4';
-import { DownloadService } from './download.service';
-import { VectorService } from './vector.service';
 
 type Transaction = PgTransaction<NodePgQueryResultHKT, typeof schema, ExtractTablesWithRelations<typeof schema>>;
 type MessageType = 'CHAT' | 'CREATE' | 'UPDATE' | 'DELETE' | 'READ';
 type ReferenceCt = { id: number; uid: string; name: string; type: string; parentId: number | null; purpose: string; content: string };
-
-const FolderIcon = [
-    'book',
-    'folder',
-    'document',
-    'note',
-    'flashcard',
-    'audio',
-    'video',
-    'image',
-    'science',
-    'math',
-    'history',
-    'language',
-    'art',
-    'music',
-    'sports',
-    'computer',
-] as const;
 
 const StudyMindState = Annotation.Root({
     userId: Annotation<number>(),
@@ -51,8 +38,8 @@ const StudyMindState = Annotation.Root({
             name: string;
             type: LibraryItemType;
             parentId: number | null;
-            metadata?: LibraryItemMetadata;
-            prompt?: string;
+            metadata: LibraryItemMetadata;
+            content?: string;
         }>
     >(),
     currentCreationIndex: Annotation<number>(),
@@ -67,12 +54,10 @@ const StudyMindState = Annotation.Root({
 export class GenAIService {
     private readonly logger = new Logger(GenAIService.name);
     private genAI: ChatGoogleGenerativeAI;
-    private gptAi: ChatOpenAI;
     private dbTxn: Transaction;
 
     constructor(
         private readonly configService: ConfigService,
-        private readonly databaseService: DatabaseService,
         private readonly downloadService: DownloadService,
         private readonly vectorService: VectorService,
     ) {
@@ -143,7 +128,7 @@ export class GenAIService {
                 1. READ: When user @mention existing content or references content from previous conversation and wants to read/analyze/understand/learn/discuss it
                 2. CREATE: When user wants to create new content using creation keywords (create, make, generate, turn into, convert, build, add)
                 3. UPDATE: When user wants to modify existing content using update keywords (edit, modify, change, update, revise, improve)  
-                4. DELETE: When user wants to remove/delete existing content using delete keywords (delete, remove, trash, eliminate)
+                4. DELETE: When user wants to delete existing content using delete keywords (delete, remove, trash, eliminate)
                 5. CHAT (Default): General questions without specific content management intent
                 
                 Previous Chat Summary: {prevSummary}
@@ -234,10 +219,8 @@ export class GenAIService {
                 return state;
             }
 
-            const db = this.dbTxn ? this.dbTxn : this.databaseService.database;
-
             const itemsUid = [...response.mentionContent, ...response.createdContent].map(item => item.uid);
-            const itemData = await db
+            const itemData = await this.dbTxn
                 .select()
                 .from(libraryItem)
                 .where(and(inArray(libraryItem.uid, itemsUid), eq(libraryItem.isActive, true)));
@@ -327,77 +310,105 @@ export class GenAIService {
         try {
             const contentQueue = [];
 
+            const contentTypeConfigs = {
+                FOLDER: {
+                    schema: z.object({
+                        color: z.string(),
+                        icon: z.string(),
+                    }),
+                    prompt: `
+                    Generate folder metadata:
+                    • Choose appropriate color (hex code) for the subject matter
+                    • Select icon from: 'folder', 'book', 'physics', 'chemistry', 'math', 'history', 'artificialIntelligence', 'statistics', 'botany', 'factory'`,
+                },
+                NOTE: {
+                    schema: z.object({
+                        description: z.string(),
+                        notes: z.string(),
+                    }),
+                    prompt: `
+                    Create comprehensive study notes (max 1000 words):
+                    • Write clear description of main topic
+                    • Use proper markdown formatting with headers, lists, and emphasis
+                    • Structure logically with key concepts and definitions`,
+                },
+                DOCUMENT: {
+                    schema: z.object({
+                        description: z.string(),
+                        content: z.string(),
+                    }),
+                    prompt: `
+                    Generate professional document (max 1000 words):
+                    • Create description of document content coverage
+                    • Use structured markdown with proper headings
+                    • Include introduction, main content, and conclusion`,
+                },
+                FLASHCARD: {
+                    schema: z.object({
+                        description: z.string(),
+                        cards: z.array(z.object({ question: z.string(), answer: z.string() })),
+                        cardCount: z.number(),
+                    }),
+                    prompt: `
+                    Create 5-10 effective flashcards:
+                    • Generate description explaining the flashcard set
+                    • Write clear questions testing understanding, not memorization
+                    • Provide concise but complete answers`,
+                },
+                AUDIO: {
+                    schema: z.object({
+                        description: z.string(),
+                        content: z.string(),
+                    }),
+                    prompt: `
+                    Generate audio script (max 1000 words):
+                    • Create description of audio content coverage
+                    • Write natural, conversational script for text-to-speech
+                    • Use clear language with smooth transitions`,
+                },
+                VIDEO: {
+                    schema: z.object({
+                        description: z.string(),
+                        content: z.string(),
+                    }),
+                    prompt: `
+                    Create video script (max 100 words):
+                    • Write description with learning objectives
+                    • Generate concise narration with visual cues [in brackets]
+                    • Structure with intro, main points, conclusion`,
+                },
+                IMAGE: {
+                    schema: z.object({
+                        description: z.string(),
+                        fileType: z.string(),
+                        resolution: z.string(),
+                        content: z.string(),
+                    }),
+                    prompt: `
+                    Generate image specifications:
+                    • Create clear description of educational purpose
+                    • Set appropriate fileType (png) and resolution (e.g., "1024x768")
+                    • Write concise generation prompt (max 20 words)`,
+                },
+            };
+
             for (const contentItem of state.contentCreationQueue) {
-                const CreateContentSchema = z.object({
-                    metadata: z
-                        .object({
-                            // Common fields
-                            description: z.string().optional(),
-                            // Folder specific
-                            color: z.string().optional(),
-                            icon: z.string().optional(),
-                            // Note specific
-                            notes: z.string().optional(),
-                            // Media specific
-                            fileType: z.string().optional(),
-                            duration: z.number().optional(),
-                            resolution: z.string().optional(),
-                        })
-                        .optional(),
-                    prompt: z.string().optional(),
-                });
+                const config = contentTypeConfigs[contentItem.type];
 
-                const structureModel = this.genAI.withStructuredOutput(CreateContentSchema);
+                const structureModel = this.genAI.withStructuredOutput(config.schema);
                 const promptTemplate = ChatPromptTemplate.fromTemplate(`
-                You are StudyMind AI. I have already analyzed the user's request and planned the required content structure. 
-                Now, based on the content type, generate the appropriate metadata and prompt for this specific item:
-
+                You are StudyMind AI. Generate content for a ${contentItem.type}.
+                
                 Previous Chat Summary: {prevSummary}
                 User Message: {userMessage}
                 Content Item: {contentItem}
-
+                
                 REFERENCED CONTENT:
-                Based on previous created content @created {{...}} and users mentioned content @mention {{...}}, the system provides required parentId in references array:
                 {references}
-
-                TYPE-SPECIFIC REQUIREMENTS:
-
-                FOLDER:
-                - metadata.color: hex code (e.g., "#A8C686")
-                - metadata.icon: from enum {folderIcons}
-
-                NOTE:
-                - metadata.description: brief description
-                - metadata.notes: well-structured markdown content (max 500 words)
-
-                FLASHCARD:
-                - metadata.description: brief description  
-                - prompt: detailed content outline for flashcard generation (max 250 words)
-
-                DOCUMENT:
-                - metadata.description: brief description
-                - metadata.fileType: "pdf"
-                - prompt: well-structured markdown content for md to pdf conversion (max 500 words)
-
-                AUDIO:
-                - metadata.description: brief description
-                - metadata.fileType: "mp3"
-                - metadata.duration: estimated seconds
-                - prompt: natural speech script (max 100 words)
-
-                VIDEO:
-                - metadata.description: brief description
-                - metadata.fileType: "mp4"  
-                - metadata.duration: estimated seconds
-                - prompt: video script (max 100 words)
-
-                IMAGE:
-                - metadata.description: brief description
-                - metadata.fileType: "png"
-                - metadata.resolution: "widthxheight" (e.g., "1920x1080")
-                - prompt: image description (max 20 words)
-
-                Generate ONLY what's needed for this specific item type.
+                
+                Instructions: ${config.prompt}
+                
+                Generate appropriate metadata and content for this ${contentItem.type}.
             `);
 
                 const response = await structureModel.invoke(
@@ -411,19 +422,19 @@ export class GenAIService {
                             type: item.type,
                             content: item.content,
                         })),
-                        folderIcons: FolderIcon.join(', '),
                     }),
                 );
 
-                if (!['FOLDER', 'NOTE'].includes(contentItem.type) && !response.prompt) {
-                    throw new BadRequestException('Failed to generate content');
-                }
+                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                // @ts-ignore
+                const { content, ...metadata } = response;
 
                 contentQueue.push({
                     ...contentItem,
                     parentId: contentItem.parentId !== 0 ? contentItem.parentId : null,
-                    metadata: response.metadata || {},
-                    ...(response.prompt && { prompt: response.prompt }),
+                    metadata: metadata || {},
+                    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+                    ...(content ? { content } : {}),
                 });
             }
 
@@ -433,7 +444,7 @@ export class GenAIService {
                 contentCreationQueue: contentQueue,
             };
         } catch (error) {
-            this.logger.error('Create Content Queue:  ', error);
+            this.logger.error('Create Content Queue: ', error);
             throw new BadRequestException('Failed to create content queue');
         }
     }
@@ -444,72 +455,23 @@ export class GenAIService {
 
             let metadata = {};
             if (currentContent?.type === 'DOCUMENT') {
-                metadata = await this.downloadService.downloadPdf(currentContent.prompt, currentContent.name);
-            } else if (currentContent?.type === 'FLASHCARD') {
-                const FlashcardSchema = z.object({
-                    cards: z.array(z.object({ question: z.string(), answer: z.string() })),
-                });
-
-                const structureModel = this.genAI.withStructuredOutput(FlashcardSchema);
-                const promptTemplate = ChatPromptTemplate.fromTemplate(`
-                    You are StudyMind AI. Generate educational flashcards based on the provided content outline.
-        
-                    Flashcard Content Outline: {prompt}
-                    Flashcard Set Name: {name}
-        
-                    YOUR TASK: Create engaging question-answer pairs that help students learn and remember key concepts.
-        
-                    GUIDELINES:
-                    - Generate 5-10 flashcards (max 10)
-                    - Questions should be clear and specific
-                    - Answers should be concise but complete
-                    - Cover different aspects: definitions, examples, applications
-                    - Use variety: what, why, how, when questions
-                    - Make questions challenging but fair
-        
-                    EXAMPLES:
-                    - "What is [concept]?" → "Definition and key characteristics"
-                    - "Why does [phenomenon] occur?" → "Explanation of causes/reasons"
-                    - "How do you calculate [formula]?" → "Step-by-step process"
-                    - "When is [method] used?" → "Specific scenarios and applications"
-        
-                    Generate diverse, educational flashcards that promote active learning.
-                `);
-
-                const response = await structureModel.invoke(
-                    await promptTemplate.formatMessages({
-                        prompt: currentContent.prompt,
-                        name: currentContent.name,
-                    }),
-                );
-
-                if (!response.cards || response.cards.length === 0) {
-                    throw new BadRequestException('Failed to generate flashcards');
-                }
-
-                metadata = { cards: response.cards, cardCount: response.cards.length };
+                metadata = await this.downloadService.downloadTool(currentContent.content, currentContent.name, 'pdf');
             } else if (currentContent?.type === 'AUDIO') {
-                metadata = await this.downloadService.downloadFile(
-                    `https://text.pollinations.ai/${currentContent.prompt}?model=openai-audio&voice=nova`,
-                    currentContent.name,
-                    currentContent?.metadata?.fileType || 'mp3',
-                );
+                metadata = await this.downloadService.downloadTool(currentContent.content, currentContent.name, 'mp3');
             } else if (currentContent?.type === 'VIDEO') {
                 throw new BadRequestException('Currently not supported');
             } else if (currentContent?.type === 'IMAGE') {
-                const resolution = currentContent?.metadata?.resolution?.split('x');
+                const resolution = (currentContent?.metadata as ImageMetadata)?.resolution?.split('x');
                 const width = resolution?.length === 2 ? resolution[0] : '1024';
                 const height = resolution?.length === 2 ? resolution[1] : '1024';
                 metadata = await this.downloadService.downloadFile(
-                    `https://image.pollinations.ai/prompt/${currentContent.prompt}?width=${width}&height=${height}`,
+                    `https://image.pollinations.ai/prompt/${currentContent.content}?width=${width}&height=${height}`,
                     currentContent.name,
-                    currentContent?.metadata?.fileType || 'png',
+                    'png',
                 );
             }
 
-            const db = this.dbTxn ? this.dbTxn : this.databaseService.database;
-
-            const createdItem = await db
+            const createdItem = await this.dbTxn
                 .insert(libraryItem)
                 .values({
                     isEmbedded: ['DOCUMENT', 'AUDIO', 'VIDEO', 'IMAGE'].includes(currentContent.type) ? false : true,
@@ -517,7 +479,7 @@ export class GenAIService {
                     type: currentContent.type,
                     parentId: currentContent.parentId === -1 ? createdContent[createdContent.length - 1].id : currentContent.parentId,
                     userId: state.userId,
-                    metadata: { ...(currentContent?.metadata || {}), ...metadata },
+                    metadata: { ...(currentContent?.metadata || {}), ...metadata } as LibraryItemMetadata,
                 })
                 .returning();
 
@@ -824,47 +786,26 @@ export class GenAIService {
             let content = '';
             if (item?.needContent) {
                 switch (itemD?.type) {
-                    case 'FOLDER': {
-                        const folderContent = await this.databaseService.database
-                            .select()
-                            .from(libraryItem)
-                            .where(
-                                and(
-                                    eq(libraryItem.parentId, itemD.id),
-                                    eq(libraryItem.userId, state.userId),
-                                    eq(libraryItem.isActive, true),
-                                    ne(libraryItem.type, 'FOLDER'),
-                                ),
-                            );
-
-                        const folderPrompt = `
-                            You are StudyMind AI, an educational assistant analyzing a student's study folder.
-
-                            User Message: ${state.userMessage}
-                            Folder Name: ${itemD.name}
-                            Folder Contents:
-                            ${folderContent.map(item => `- ${item.name} (${item.type})`).join('\n')}
-
-                            Provide a comprehensive response that helps the student understand their available resources and how they relate to their request.`;
-
-                        content = await this.generateResponse(folderPrompt);
-                        break;
-                    }
                     case 'NOTE': {
-                        const noteContent = itemD.metadata?.['notes'] || '';
-                        content = await this.generateResponse(noteContent, systemPrompt);
+                        const metadata = itemD.metadata as NoteMetadata;
+                        const contexts = metadata?.notes || '';
+
+                        content = await this.generateResponse(contexts, systemPrompt);
                         break;
                     }
                     case 'DOCUMENT': {
-                        const documentContent = await this.vectorService.searchByItemUid(item.purpose, itemD.uid);
-                        content = await this.generateResponse(documentContent, systemPrompt);
+                        const contexts = await this.vectorService.searchByItemUid(item.purpose, itemD.uid);
+
+                        content = await this.generateResponse(contexts, systemPrompt);
                         break;
                     }
                     case 'FLASHCARD': {
-                        const flashcardContent = itemD.metadata?.['cards']?.length
-                            ? itemD.metadata['cards'].map(item => `- ${item.question}: ${item.answer}`).join('\n')
+                        const metadata = itemD.metadata as FlashcardMetadata;
+                        const contexts = metadata?.cards?.length
+                            ? metadata.cards.map(item => `- ${item.question}: ${item.answer}`).join('\n')
                             : '';
-                        content = await this.generateResponse(flashcardContent, systemPrompt);
+
+                        content = await this.generateResponse(contexts, systemPrompt);
                         break;
                     }
                     case 'AUDIO':

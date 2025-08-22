@@ -1,5 +1,5 @@
 # Build App
-FROM node:22-alpine AS build
+FROM node:slim AS build
 
 WORKDIR /app
 
@@ -13,7 +13,7 @@ RUN npm run build && \
     echo "Build complete"
 
 # Take the build output and run it
-FROM zenika/alpine-chrome:with-puppeteer
+FROM node:slim AS deploy
 
 WORKDIR /app
 

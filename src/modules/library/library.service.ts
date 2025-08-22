@@ -2,7 +2,7 @@ import { SupabaseService } from '@/common/services/supabase.service';
 import { VectorService } from '@/common/services/vector.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
-import { libraryItem, LibraryItemType } from '@/database/schemas/library.schema';
+import { AudioMetadata, libraryItem, LibraryItemType } from '@/database/schemas/library.schema';
 import { CreateLibraryItemDto, UpdateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
@@ -127,36 +127,72 @@ export class LibraryService {
         }
 
         const libraryItemsQuery = `
-        WITH RECURSIVE child_item AS (
+        WITH RECURSIVE library_tree AS (
             SELECT 
-                li.*,
-                CONCAT('/', name) AS path
-            FROM 
-                library_item li
-            WHERE 
-                li.parent_id IS NULL 
-                AND li.user_id = ${user.id} 
-                AND li.is_active = TRUE 
-                ${libraryItemWhere}
-            UNION ALL
-            SELECT 
-                li.*,
-                CONCAT(ci.path, '/', li.name) AS path
-            FROM 
-                library_item li
-            JOIN 
-                child_item ci ON li.parent_id = ci.id
-            WHERE 
-                li.user_id = ${user.id}
+                li.id, 
+                li.uid, 
+                li.name, 
+                li.type, 
+                li.parent_id, 
+                0 as level, 
+                ARRAY[id] as id_path, 
+                '/' || name as path 
+            FROM library_item as li
+            WHERE
+                li.parent_id IS NULL
                 AND li.is_active = TRUE
+                AND li.user_id = ${user.id}
                 ${libraryItemWhere}
-        )
+            UNION ALL 
+            SELECT 
+                li.id, 
+                li.uid, 
+                li.name, 
+                li.type, 
+                li.parent_id, 
+                lt.level + 1, 
+                lt.id_path || li.id, 
+                lt.path || '/' || li.name 
+            FROM library_item li 
+            JOIN library_tree lt ON li.parent_id = lt.id 
+            WHERE 
+                NOT li.id = ANY(lt.id_path)
+                AND li.is_active = TRUE
+                AND li.user_id = ${user.id}
+                ${libraryItemWhere}
+        ), 
+        nested_structure AS (
+            SELECT 
+                parent_id, 
+                JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'id', id,
+                        'uid', uid,
+                        'name', name,
+                        'type', type,
+                        'path', path
+                    ) 
+                    ORDER BY 
+                        name,
+                        CASE WHEN type = 'FOLDER' THEN 0 ELSE 1 END
+                ) as children 
+            FROM library_tree 
+            WHERE level > 0 
+            GROUP BY parent_id
+        ) 
         SELECT 
-            *
-        FROM 
-            child_item
+            lt.id, 
+            lt.uid, 
+            lt.name, 
+            lt.type, 
+            lt.path, 
+        COALESCE(ns.children, '[]' :: json) as children 
+        FROM library_tree lt 
+        LEFT JOIN nested_structure ns ON lt.id = ns.parent_id 
+        WHERE lt.level = 0 
         ORDER BY 
-            path;
+            lt.name,
+            CASE WHEN lt.type = 'FOLDER' THEN 0 ELSE 1 END;
         `;
 
         const libraryItems = await db.execute(sql.raw(libraryItemsQuery)).then(res => res.rows);
@@ -190,7 +226,7 @@ export class LibraryService {
             let metadata = { ...body.metadata };
 
             if (file) {
-                const fileMetadata = await this.supabaseService.uploadFile(file, metadata?.fileType);
+                const fileMetadata = await this.supabaseService.uploadFile(file, (metadata as AudioMetadata).fileType);
                 metadata = { ...metadata, ...fileMetadata };
             }
 
@@ -224,7 +260,7 @@ export class LibraryService {
         }
 
         if (body.isEmbedded && doesLibraryItemExist.type === 'DOCUMENT' && !!doesLibraryItemExist.metadata['filePath']) {
-            const tempPath = await this.supabaseService.downloadFile(doesLibraryItemExist.metadata['filePath']);
+            const tempPath = await this.supabaseService.downloadFile((doesLibraryItemExist.metadata as AudioMetadata).filePath);
             await this.vectorService.processAndEmbedPDF(tempPath, doesLibraryItemExist.uid, user.uid);
             fs.unlinkSync(tempPath);
         }

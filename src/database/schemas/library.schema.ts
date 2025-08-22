@@ -20,23 +20,43 @@ export const libraryItem = pgTable('library_item', {
 });
 
 export type LibraryItemType = (typeof libraryItemTypeEnum.enumValues)[number];
-export type LibraryItemMetadata = {
-    description?: string;
-    // Folder specific
-    color?: string;
-    icon?: string;
-    // Note specific
-    notes?: string;
-    // Flashcard specific
-    cards?: { question: string; answer: string }[];
-    cardCount?: number;
-    // Media specific
-    filePath?: string;
-    fileUrl?: string;
-    fileSize?: number;
-    fileType?: string;
-    duration?: string;
-    resolution?: string;
+
+export type FolderMetadata = { color: string; icon: string };
+export type NoteMetadata = { description: string; notes: string };
+export type FlashcardMetadata = { description: string; cards: { question: string; answer: string }[]; cardCount: number };
+export type DocumentMetadata = { description: string; fileType: string; filePath: string; fileUrl: string; fileSize: number };
+export type AudioMetadata = {
+    description: string;
+    fileType: string;
+    duration: string;
+    filePath: string;
+    fileUrl: string;
+    fileSize: number;
 };
+export type VideoMetadata = {
+    description: string;
+    fileType: string;
+    duration: string;
+    filePath: string;
+    fileUrl: string;
+    fileSize: number;
+};
+export type ImageMetadata = {
+    description: string;
+    fileType: string;
+    resolution: string;
+    filePath: string;
+    fileUrl: string;
+    fileSize: number;
+};
+
+export type LibraryItemMetadata =
+    | FolderMetadata
+    | NoteMetadata
+    | FlashcardMetadata
+    | DocumentMetadata
+    | AudioMetadata
+    | VideoMetadata
+    | ImageMetadata;
 export type LibraryItem = typeof libraryItem.$inferSelect;
 export type CreateLibraryItem = typeof libraryItem.$inferInsert;

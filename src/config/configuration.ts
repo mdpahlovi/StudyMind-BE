@@ -42,4 +42,5 @@ export default () => ({
     stable_duffusion: {
         apiKey: process.env.STABLE_DIFFUSION_API_KEY,
     },
+    tools: process.env.STUDYMIND_TOOLS,
 });
