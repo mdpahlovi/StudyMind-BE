@@ -327,8 +327,8 @@ export class GenAIService {
                         notes: z.string(),
                     }),
                     prompt: `
-                    Create comprehensive study notes (max 1000 words):
-                    • Write clear description of main topic
+                    Create comprehensive study notes (max 500 words):
+                    • Write short description of main topic
                     • Use proper markdown formatting with headers, lists, and emphasis
                     • Structure logically with key concepts and definitions`,
                 },
@@ -338,8 +338,8 @@ export class GenAIService {
                         content: z.string(),
                     }),
                     prompt: `
-                    Generate professional document (max 1000 words):
-                    • Create description of document content coverage
+                    Generate professional document (max 500 words):
+                    • Create short description of document content coverage
                     • Use structured markdown with proper headings
                     • Include introduction, main content, and conclusion`,
                 },
@@ -351,7 +351,7 @@ export class GenAIService {
                     }),
                     prompt: `
                     Create 5-10 effective flashcards:
-                    • Generate description explaining the flashcard set
+                    • Generate short description explaining the flashcard set
                     • Write clear questions testing understanding, not memorization
                     • Provide concise but complete answers`,
                 },
@@ -361,8 +361,8 @@ export class GenAIService {
                         content: z.string(),
                     }),
                     prompt: `
-                    Generate audio script (max 1000 words):
-                    • Create description of audio content coverage
+                    Generate audio script (max 500 words):
+                    • Create short description of audio content coverage
                     • Write natural, conversational script for text-to-speech
                     • Use clear language with smooth transitions`,
                 },
@@ -373,7 +373,7 @@ export class GenAIService {
                     }),
                     prompt: `
                     Create video script (max 100 words):
-                    • Write description with learning objectives
+                    • Write short description with learning objectives
                     • Generate concise narration with visual cues [in brackets]
                     • Structure with intro, main points, conclusion`,
                 },
@@ -386,7 +386,7 @@ export class GenAIService {
                     }),
                     prompt: `
                     Generate image specifications:
-                    • Create clear description of educational purpose
+                    • Create short description of educational purpose
                     • Set appropriate fileType (png) and resolution (e.g., "1024x768")
                     • Write concise generation prompt (max 20 words)`,
                 },
