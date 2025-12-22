@@ -1,6 +1,4 @@
-import { DownloadService } from '@/common/services/download.service';
 import { GenAIService } from '@/common/services/gen-ai.service';
-import { SupabaseService } from '@/common/services/supabase.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
 import { chatMessages, chatSessions } from '@/database/schemas/chat.schema';
@@ -12,9 +10,7 @@ import { RequestQueryDto, UpdateBulkChatSessionDto, UpdateChatSessionDto } from 
 export class ChatService {
     constructor(
         private readonly databaseService: DatabaseService,
-        private readonly supabaseService: SupabaseService,
         private readonly genAIService: GenAIService,
-        private readonly downloadService: DownloadService,
     ) {}
 
     async getChats(query: { [key: string]: string }, user: User) {
@@ -145,9 +141,9 @@ export class ChatService {
     async updateChatSession(uid: string, body: UpdateChatSessionDto, user: User) {
         const db = this.databaseService.database;
 
-        const [doesChatSessionsExist] = await db.select().from(chatSessions).where(eq(chatSessions.uid, uid));
+        const sessionData = await db.query.chatSessions.findFirst({ where: eq(chatSessions.uid, uid) });
 
-        if (!doesChatSessionsExist) {
+        if (!sessionData) {
             throw new NotFoundException('Chat session not found');
         }
 

@@ -29,7 +29,7 @@ export class VectorService {
 
         this.embeddings = new GoogleGenerativeAIEmbeddings({
             apiKey: this.configService.get<string>('gemini.apiKey'),
-            modelName: 'text-embedding-004',
+            modelName: 'gemini-embedding-001',
         });
 
         const index = this.pinecone.Index(this.configService.get<string>('pinecone.index'));

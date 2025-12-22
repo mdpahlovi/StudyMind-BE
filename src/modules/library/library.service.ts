@@ -2,7 +2,7 @@ import { SupabaseService } from '@/common/services/supabase.service';
 import { VectorService } from '@/common/services/vector.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
-import { AudioMetadata, libraryItem, LibraryItemType } from '@/database/schemas/library.schema';
+import { libraryItem, LibraryItemType } from '@/database/schemas/library.schema';
 import { CreateLibraryItemDto, UpdateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
@@ -223,11 +223,11 @@ export class LibraryService {
         const db = this.databaseService.database;
 
         const createdData = await db.transaction(async tx => {
-            let metadata = { ...body.metadata };
+            const metadata = { ...body.metadata };
 
-            if (file) {
-                const fileMetadata = await this.supabaseService.uploadFile(file, (metadata as AudioMetadata).fileType);
-                metadata = { ...metadata, ...fileMetadata };
+            if (file && 'fileType' in metadata) {
+                const fileData = await this.supabaseService.uploadFile(file, metadata.fileType);
+                Object.assign(metadata, fileData);
             }
 
             return await tx
@@ -253,15 +253,15 @@ export class LibraryService {
     async updateLibraryItem(uid: string, body: UpdateLibraryItemDto, user: User) {
         const db = this.databaseService.database;
 
-        const [doesLibraryItemExist] = await db.select().from(libraryItem).where(eq(libraryItem.uid, uid));
+        const itemData = await db.query.libraryItem.findFirst({ where: eq(libraryItem.uid, uid) });
 
-        if (!doesLibraryItemExist) {
+        if (!itemData) {
             throw new NotFoundException('Library item not found');
         }
 
-        if (body.isEmbedded && doesLibraryItemExist.type === 'DOCUMENT' && !!doesLibraryItemExist.metadata['filePath']) {
-            const tempPath = await this.supabaseService.downloadFile((doesLibraryItemExist.metadata as AudioMetadata).filePath);
-            await this.vectorService.processAndEmbedPDF(tempPath, doesLibraryItemExist.uid, user.uid);
+        if (body.isEmbedded && itemData.type === 'DOCUMENT' && 'filePath' in itemData.metadata) {
+            const tempPath = await this.supabaseService.downloadFile(itemData.metadata.filePath);
+            await this.vectorService.processAndEmbedPDF(tempPath, itemData.uid, user.uid);
             fs.unlinkSync(tempPath);
         }
 

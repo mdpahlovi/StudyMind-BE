@@ -1,11 +1,12 @@
 # Build App
-FROM node:slim AS build
+FROM node:lts-slim AS build
 
 WORKDIR /app
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
 COPY package*.json ./
 
-RUN npm ci --prefer-offline
+RUN npm ci
 
 COPY . .
 
@@ -13,14 +14,17 @@ RUN npm run build && \
     echo "Build complete"
 
 # Take the build output and run it
-FROM node:slim AS deploy
+FROM node:lts-slim AS deploy
 
 WORKDIR /app
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false
+
+COPY package*.json ./
+
+RUN npm ci --omit=dev
 
 RUN mkdir -p /app/public
 
-COPY --from=build /app/package*.json ./
-COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/.env ./
 

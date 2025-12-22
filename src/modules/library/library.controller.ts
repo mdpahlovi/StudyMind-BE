@@ -1,4 +1,3 @@
-import { SupabaseService } from '@/common/services/supabase.service';
 import { type User } from '@/database/schemas';
 import { CurrentUser } from '@/decorators/current-user.decorator';
 import { CreateLibraryItemDto, UpdateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
@@ -10,10 +9,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 @ApiTags('Library')
 @Controller('library')
 export class LibraryController {
-    constructor(
-        private readonly libraryService: LibraryService,
-        private readonly supabaseService: SupabaseService,
-    ) {}
+    constructor(private readonly libraryService: LibraryService) {}
 
     @ApiOperation({ summary: 'Retrieve all library item' })
     @Get()

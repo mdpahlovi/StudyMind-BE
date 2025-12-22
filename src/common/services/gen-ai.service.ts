@@ -68,7 +68,7 @@ export class GenAIService {
     private initializeGenAI() {
         this.genAI = new ChatGoogleGenerativeAI({
             apiKey: this.configService.get<string>('gemini.apiKey'),
-            model: 'gemini-2.0-flash',
+            model: 'gemini-3.8-flash',
             temperature: 0.7,
             maxOutputTokens: 2048,
         });
