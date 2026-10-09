@@ -53,3 +53,9 @@ export class UpdateBulkChatSessionDto {
     @IsOptional()
     isActive: boolean;
 }
+
+export class DeleteBulkChatSessionDto {
+    @ApiProperty({ description: 'Chat session uids', example: ['123'] })
+    @IsNotEmpty()
+    uid: string[];
+}

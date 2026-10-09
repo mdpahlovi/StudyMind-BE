@@ -21,10 +21,11 @@ export default () => ({
     },
     gemini: {
         apiKey: process.env.GEMINI_API_KEY,
+        model: process.env.GEMINI_MODEL,
     },
-    pinecone: {
-        apiKey: process.env.PINECONE_API_KEY,
-        index: process.env.PINECONE_INDEX,
+    retrieval: {
+        topK: parseInt(process.env.RETRIEVAL_TOP_K ?? '8', 10),
+        minScore: parseFloat(process.env.RETRIEVAL_MIN_SCORE ?? '0.5'),
     },
     tools: process.env.STUDYMIND_TOOLS,
 });

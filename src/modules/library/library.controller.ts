@@ -1,8 +1,13 @@
 import { type User } from '@/database/schemas';
 import { CurrentUser } from '@/decorators/current-user.decorator';
-import { CreateLibraryItemDto, UpdateBulkLibraryItemsDto, UpdateLibraryItemDto } from '@/modules/library/library.dto';
+import {
+    CreateLibraryItemDto,
+    DeleteBulkLibraryItemsDto,
+    UpdateBulkLibraryItemsDto,
+    UpdateLibraryItemDto,
+} from '@/modules/library/library.dto';
 import { LibraryService } from '@/modules/library/library.service';
-import { Body, Controller, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
@@ -46,6 +51,12 @@ export class LibraryController {
     @Patch('bulk')
     async updateBulkLibraryItems(@Body() body: UpdateBulkLibraryItemsDto, @CurrentUser() user: User) {
         return this.libraryService.updateBulkLibraryItems(body, user);
+    }
+
+    @ApiOperation({ summary: 'Permanently delete removed library items' })
+    @Delete('bulk')
+    async deleteBulkLibraryItems(@Body() body: DeleteBulkLibraryItemsDto, @CurrentUser() user: User) {
+        return this.libraryService.deleteBulkLibraryItems(body, user);
     }
 
     @ApiOperation({ summary: 'Update a library item' })

@@ -55,7 +55,6 @@ const StudyMindState = Annotation.Root({
 export class GenAIService {
     private readonly logger = new Logger(GenAIService.name);
     private genAI: ChatGoogleGenerativeAI;
-    private dbTxn: Transaction;
 
     constructor(
         private readonly configService: ConfigService,
@@ -68,53 +67,49 @@ export class GenAIService {
     private initializeGenAI() {
         this.genAI = new ChatGoogleGenerativeAI({
             apiKey: this.configService.get<string>('gemini.apiKey'),
-            model: 'gemini-3.8-flash',
+            model: this.configService.get<string>('gemini.model'),
             temperature: 0.7,
             maxOutputTokens: 2048,
         });
     }
 
-    private buildGraph() {
-        return (
-            new StateGraph(StudyMindState)
-                // Use arrow functions instead of bind
-                .addNode('identifyUserIntent', state => this.identifyUserIntent(state))
-                .addNode('resolveMentions', state => this.resolveMentions(state))
-                .addNode('planContentQueue', state => this.planContentQueue(state))
-                .addNode('createContentQueue', state => this.createContentQueue(state))
-                .addNode('createOneContent', state => this.createOneContent(state))
-                .addNode('checkCreationProcess', state => this.checkCreationProcess(state))
-                .addNode('analyzeContent', state => this.analyzeContent(state))
-                .addNode('contextualChat', state => this.contextualChat(state))
-                .addNode('generateUserReply', state => this.generateUserReply(state))
-                .addNode('updateChatSession', state => this.updateChatSession(state))
+    private buildGraph(dbTxn: Transaction) {
+        return new StateGraph(StudyMindState)
+            .addNode('identifyUserIntent', state => this.identifyUserIntent(state))
+            .addNode('resolveMentions', state => this.resolveMentions(state, dbTxn))
+            .addNode('planContentQueue', state => this.planContentQueue(state))
+            .addNode('createContentQueue', state => this.createContentQueue(state))
+            .addNode('createOneContent', state => this.createOneContent(state, dbTxn))
+            .addNode('checkCreationProcess', state => this.checkCreationProcess(state))
+            .addNode('analyzeContent', state => this.analyzeContent(state))
+            .addNode('contextualChat', state => this.contextualChat(state))
+            .addNode('generateUserReply', state => this.generateUserReply(state))
+            .addNode('updateChatSession', state => this.updateChatSession(state))
 
-                // Same for conditional edges
-                .addEdge(START, 'identifyUserIntent')
-                .addConditionalEdges('identifyUserIntent', state => this.routeAfterRefs(state), {
-                    CHAT: 'contextualChat',
-                    CREATE: 'resolveMentions',
-                    UPDATE: 'generateUserReply',
-                    DELETE: 'generateUserReply',
-                    READ: 'resolveMentions',
-                })
-                .addConditionalEdges('resolveMentions', state => this.routeAfterContext(state), {
-                    CREATE: 'planContentQueue',
-                    READ: 'analyzeContent',
-                })
-                .addEdge('planContentQueue', 'createContentQueue')
-                .addEdge('createContentQueue', 'createOneContent')
-                .addEdge('createOneContent', 'checkCreationProcess')
-                .addConditionalEdges('checkCreationProcess', state => this.routeContentProgress(state), {
-                    CONTINUE: 'createOneContent',
-                    COMPLETE: 'generateUserReply',
-                })
-                .addEdge('contextualChat', 'generateUserReply')
-                .addEdge('analyzeContent', 'generateUserReply')
-                .addEdge('generateUserReply', 'updateChatSession')
-                .addEdge('updateChatSession', END)
-                .compile()
-        );
+            .addEdge(START, 'identifyUserIntent')
+            .addConditionalEdges('identifyUserIntent', state => this.routeAfterRefs(state), {
+                CHAT: 'contextualChat',
+                CREATE: 'resolveMentions',
+                UPDATE: 'generateUserReply',
+                DELETE: 'generateUserReply',
+                READ: 'resolveMentions',
+            })
+            .addConditionalEdges('resolveMentions', state => this.routeAfterContext(state), {
+                CREATE: 'planContentQueue',
+                READ: 'analyzeContent',
+            })
+            .addEdge('planContentQueue', 'createContentQueue')
+            .addEdge('createContentQueue', 'createOneContent')
+            .addEdge('createOneContent', 'checkCreationProcess')
+            .addConditionalEdges('checkCreationProcess', state => this.routeContentProgress(state), {
+                CONTINUE: 'createOneContent',
+                COMPLETE: 'generateUserReply',
+            })
+            .addEdge('contextualChat', 'generateUserReply')
+            .addEdge('analyzeContent', 'generateUserReply')
+            .addEdge('generateUserReply', 'updateChatSession')
+            .addEdge('updateChatSession', END)
+            .compile();
     }
 
     private async identifyUserIntent(state: typeof StudyMindState.State) {
@@ -157,7 +152,7 @@ export class GenAIService {
             throw new BadRequestException('Failed to identify user intent');
         }
     }
-    private async resolveMentions(state: typeof StudyMindState.State) {
+    private async resolveMentions(state: typeof StudyMindState.State, dbTxn: Transaction) {
         try {
             const mentionRegex = /@mention\s*{([^}]+)}/g;
             const createdRegex = /@created\s*{([^}]+)}/g;
@@ -221,10 +216,17 @@ export class GenAIService {
             }
 
             const itemsUid = [...response.mentionContent, ...response.createdContent].map(item => item.uid);
-            const itemData = await this.dbTxn
+            const itemData = await dbTxn
                 .select()
                 .from(libraryItem)
-                .where(and(inArray(libraryItem.uid, itemsUid), eq(libraryItem.isActive, true)));
+                .where(
+                    and(
+                        inArray(libraryItem.uid, itemsUid),
+                        eq(libraryItem.isActive, true),
+                        // Uids come from LLM output, so never trust them without owner scoping.
+                        eq(libraryItem.userId, state.userId),
+                    ),
+                );
 
             state.mentionContext = await this.putInState(state, response.mentionContent, itemData);
             state.sessionContext = await this.putInState(state, response.createdContent, itemData);
@@ -449,7 +451,7 @@ export class GenAIService {
             throw new BadRequestException('Failed to create content queue');
         }
     }
-    private async createOneContent(state: typeof StudyMindState.State) {
+    private async createOneContent(state: typeof StudyMindState.State, dbTxn: Transaction) {
         try {
             const { contentCreationQueue, currentCreationIndex, createdContent } = state;
             const currentContent = contentCreationQueue[currentCreationIndex];
@@ -472,7 +474,7 @@ export class GenAIService {
                 );
             }
 
-            const createdItem = await this.dbTxn
+            const createdItem = await dbTxn
                 .insert(libraryItem)
                 .values({
                     isEmbedded: ['DOCUMENT', 'AUDIO', 'VIDEO', 'IMAGE'].includes(currentContent.type) ? false : true,
@@ -713,7 +715,6 @@ export class GenAIService {
         dbTxn: Transaction,
     ): Promise<typeof StudyMindState.State> {
         try {
-            this.dbTxn = dbTxn;
             const initialState: typeof StudyMindState.State = {
                 userId: userId,
                 session: { uid: sessionUid, title: '', summary: '' },
@@ -730,7 +731,7 @@ export class GenAIService {
                 error: null,
             };
 
-            const result = await this.buildGraph().invoke(initialState);
+            const result = await this.buildGraph(dbTxn).invoke(initialState);
 
             console.log('[Node] Graph Execution');
             return result;
@@ -790,7 +791,12 @@ export class GenAIService {
                         break;
                     }
                     case 'DOCUMENT': {
-                        const contexts = await this.vectorService.searchByItemUid(item.purpose, itemD.uid);
+                        // Anchor on the user's actual words, not just the resolver's paraphrase.
+                        const query = [state.userMessage, item.purpose].filter(Boolean).join('\n');
+                        const contexts = await this.vectorService.searchByItemUid(query, itemD.uid, state.userId);
+
+                        // Never summarise empty context — that invites hallucination.
+                        if (!contexts) break;
 
                         content = await this.generateResponse(contexts, systemPrompt);
                         break;

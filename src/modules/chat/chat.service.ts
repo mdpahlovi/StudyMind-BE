@@ -1,24 +1,28 @@
 import { GenAIService } from '@/common/services/gen-ai.service';
+import { VectorService } from '@/common/services/vector.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
 import { chatMessages, chatSessions } from '@/database/schemas/chat.schema';
+import { DocumentMetadata } from '@/database/schemas/library.schema';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray } from 'drizzle-orm';
-import { RequestQueryDto, UpdateBulkChatSessionDto, UpdateChatSessionDto } from './chat.dto';
+import { DeleteBulkChatSessionDto, RequestQueryDto, UpdateBulkChatSessionDto, UpdateChatSessionDto } from './chat.dto';
 
 @Injectable()
 export class ChatService {
     constructor(
         private readonly databaseService: DatabaseService,
         private readonly genAIService: GenAIService,
+        private readonly vectorService: VectorService,
     ) {}
 
     async getChats(query: { [key: string]: string }, user: User) {
         const db = this.databaseService.database;
 
         const search = query.search || '';
+        const isActive = query.isActive !== 'false';
 
-        const chatSessionWhere = [eq(chatSessions.isActive, true), eq(chatSessions.userId, user.id)];
+        const chatSessionWhere = [eq(chatSessions.isActive, isActive), eq(chatSessions.userId, user.id)];
         const chatSessionOrder = [desc(chatSessions.lastMessageAt)];
 
         if (search) {
@@ -76,7 +80,7 @@ export class ChatService {
     async requestQuery(uid: string, body: RequestQueryDto, user: User) {
         const db = this.databaseService.database;
 
-        return await db.transaction(async tx => {
+        const { payload, createdDocuments } = await db.transaction(async tx => {
             const currMessage = body.message[body.message.length - 1];
             const chatMessage = body.message;
 
@@ -85,7 +89,6 @@ export class ChatService {
                 throw new BadRequestException('Please provide more specific instructions. Thank you');
             }
 
-            // Create or update chat session
             const chatSession = await tx
                 .insert(chatSessions)
                 .values({
@@ -106,7 +109,6 @@ export class ChatService {
                 })
                 .returning();
 
-            // Insert current message
             const newMessages = await tx
                 .insert(chatMessages)
                 .values([
@@ -124,24 +126,63 @@ export class ChatService {
                 ])
                 .returning();
 
-            if (newMessages?.length) {
-                return {
+            if (!newMessages?.length) {
+                throw new BadRequestException('Failed to save chat messages');
+            }
+
+            return {
+                // Indexed after the transaction commits so embedding never holds a connection open.
+                createdDocuments: response.createdContent.filter(item => {
+                    if (item.type !== 'DOCUMENT') return false;
+                    const metadata = item.metadata as Partial<DocumentMetadata> | null;
+                    return !!(metadata?.filePath || metadata?.fileUrl);
+                }),
+                payload: {
                     message: 'Chat session created successfully',
                     data: {
                         session: chatSession[0],
                         message: newMessages[1],
                         isCreatedItem: !!response.createdContent.length,
                     },
-                };
-            }
+                },
+            };
         });
+
+        for (const document of createdDocuments) {
+            await this.vectorService.indexDocumentItem(document);
+        }
+
+        return payload;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    async deleteBulkChatSessions(body: DeleteBulkChatSessionDto, user: User) {
+        const db = this.databaseService.database;
+
+        const sessions = await db
+            .select({ id: chatSessions.id })
+            .from(chatSessions)
+            .where(and(inArray(chatSessions.uid, body.uid), eq(chatSessions.userId, user.id), eq(chatSessions.isActive, false)));
+
+        if (!sessions.length) {
+            throw new NotFoundException('No removed chat sessions found');
+        }
+
+        const sessionIds = sessions.map(session => session.id);
+
+        const deleted = await db.transaction(async tx => {
+            await tx.delete(chatMessages).where(inArray(chatMessages.chatSessionId, sessionIds));
+            return tx.delete(chatSessions).where(inArray(chatSessions.id, sessionIds)).returning({ uid: chatSessions.uid });
+        });
+
+        return { message: 'Removed chats deleted permanently', data: deleted };
+    }
+
     async updateChatSession(uid: string, body: UpdateChatSessionDto, user: User) {
         const db = this.databaseService.database;
 
-        const sessionData = await db.query.chatSessions.findFirst({ where: eq(chatSessions.uid, uid) });
+        const sessionData = await db.query.chatSessions.findFirst({
+            where: and(eq(chatSessions.uid, uid), eq(chatSessions.userId, user.id)),
+        });
 
         if (!sessionData) {
             throw new NotFoundException('Chat session not found');
@@ -153,7 +194,7 @@ export class ChatService {
                 ...(body.title ? { title: body.title } : {}),
                 updatedAt: new Date(),
             })
-            .where(eq(chatSessions.uid, uid))
+            .where(and(eq(chatSessions.uid, uid), eq(chatSessions.userId, user.id)))
             .returning();
 
         if (!updatedData[0] || !updatedData[0]?.uid) {
@@ -163,17 +204,16 @@ export class ChatService {
         return { message: 'Chat session updated successfully', data: updatedData[0] };
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async updateBulkChatSession(body: UpdateBulkChatSessionDto, user: User) {
         const db = this.databaseService.database;
 
         const updatedData = await db
             .update(chatSessions)
             .set({
-                ...(body.isActive ? { isActive: body.isActive } : {}),
+                ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
                 updatedAt: new Date(),
             })
-            .where(inArray(chatSessions.uid, body.uid))
+            .where(and(inArray(chatSessions.uid, body.uid), eq(chatSessions.userId, user.id)))
             .returning();
 
         if (!updatedData[0] || !updatedData[0]?.uid) {

@@ -1,8 +1,8 @@
 import { type User } from '@/database/schemas';
 import { CurrentUser } from '@/decorators/current-user.decorator';
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RequestQueryDto, UpdateBulkChatSessionDto, UpdateChatSessionDto } from './chat.dto';
+import { DeleteBulkChatSessionDto, RequestQueryDto, UpdateBulkChatSessionDto, UpdateChatSessionDto } from './chat.dto';
 import { ChatService } from './chat.service';
 
 @ApiTags('Chat')
@@ -22,6 +22,11 @@ export class ChatController {
         return this.chatService.getOneChat(uid, user);
     }
 
+    @ApiOperation({ summary: 'Permanently delete removed chat sessions' })
+    @Delete('bulk')
+    async deleteBulkChatSessions(@Body() body: DeleteBulkChatSessionDto, @CurrentUser() user: User) {
+        return this.chatService.deleteBulkChatSessions(body, user);
+    }
     @ApiOperation({ summary: 'Update bulk library items' })
     @Patch('update/bulk')
     async updateBulkLibraryItems(@Body() body: UpdateBulkChatSessionDto, @CurrentUser() user: User) {

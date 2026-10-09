@@ -64,3 +64,9 @@ export class UpdateBulkLibraryItemsDto {
     @IsOptional()
     parentId: number | null;
 }
+
+export class DeleteBulkLibraryItemsDto {
+    @ApiProperty({ description: 'Library item uids', example: ['123'] })
+    @IsNotEmpty()
+    uid: string[];
+}
