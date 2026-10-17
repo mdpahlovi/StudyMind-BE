@@ -7,7 +7,7 @@ export const chatSessions = pgTable('chat_sessions', {
     isActive: boolean('is_active').default(true),
     userId: integer('user_id')
         .notNull()
-        .references(() => users.id),
+        .references(() => users.id, { onDelete: 'cascade' }),
     title: text('title').notNull(),
     summary: text('summary'),
     lastMessage: text('last_message'),
@@ -23,7 +23,7 @@ export const chatMessages = pgTable('chat_messages', {
     role: chatMessageRoleEnum('role').notNull(),
     chatSessionId: integer('chat_session_id')
         .notNull()
-        .references(() => chatSessions.id),
+        .references(() => chatSessions.id, { onDelete: 'cascade' }),
     message: text('message').notNull(),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),

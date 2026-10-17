@@ -16,7 +16,7 @@ type ToolResponse = {
     message: string;
     data: {
         duration?: number;
-        fileName: string;
+        filePath: string;
         fileUrl: string;
         fileSize: number;
     };
@@ -58,7 +58,7 @@ export class DownloadService {
 
     async downloadTool(contents: string, fileName: string, fileType: string) {
         try {
-            fileName = fileName
+            const filePath = fileName
                 .replace(/[^a-zA-Z0-9]/g, '_')
                 .toLowerCase()
                 .concat(`_${Date.now()}.${fileType}`);
@@ -66,7 +66,7 @@ export class DownloadService {
             const response = await firstValueFrom(
                 this.httpService.post<ToolResponse>(`${this.configService.get('tools')}/${this.toolRoute(fileType)}`, {
                     contents,
-                    fileName,
+                    filePath,
                 }),
             );
 
