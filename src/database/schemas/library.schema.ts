@@ -40,7 +40,7 @@ export type AudioMetadata = {
 export type VideoMetadata = {
     description: string;
     fileType: string;
-    duration: string;
+    duration: number;
     filePath: string;
     fileUrl: string;
     fileSize: number;

@@ -44,7 +44,3 @@ lerna-debug.log*
 # Database
 *.db
 *.sqlite
-
-# Drizzle
-/src/database/migrations/*
-!src/database/migrations/.gitkeep
