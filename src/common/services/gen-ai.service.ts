@@ -18,6 +18,7 @@ import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'crypto';
 import { and, eq, ExtractTablesWithRelations, inArray } from 'drizzle-orm';
 import { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
 import { PgTransaction } from 'drizzle-orm/pg-core';
@@ -456,11 +457,12 @@ export class GenAIService {
             const { contentCreationQueue, currentCreationIndex, createdContent } = state;
             const currentContent = contentCreationQueue[currentCreationIndex];
 
+            const uid = randomUUID();
             let metadata = {};
             if (currentContent?.type === 'DOCUMENT') {
-                metadata = await this.downloadService.downloadTool(currentContent.content, currentContent.name, 'pdf');
+                metadata = await this.downloadService.downloadTool(currentContent.content, uid, 'pdf');
             } else if (currentContent?.type === 'AUDIO') {
-                metadata = await this.downloadService.downloadTool(currentContent.content, currentContent.name, 'mp3');
+                metadata = await this.downloadService.downloadTool(currentContent.content, uid, 'mp3');
             } else if (currentContent?.type === 'VIDEO') {
                 throw new BadRequestException('Currently not supported');
             } else if (currentContent?.type === 'IMAGE') {
@@ -469,7 +471,7 @@ export class GenAIService {
                 const height = resolution?.length === 2 ? resolution[1] : '1024';
                 metadata = await this.downloadService.downloadFile(
                     `https://image.pollinations.ai/prompt/${currentContent.content}?width=${width}&height=${height}`,
-                    currentContent.name,
+                    uid,
                     'png',
                 );
             }
@@ -477,6 +479,7 @@ export class GenAIService {
             const createdItem = await dbTxn
                 .insert(libraryItem)
                 .values({
+                    uid,
                     isEmbedded: ['DOCUMENT', 'AUDIO', 'VIDEO', 'IMAGE'].includes(currentContent.type) ? false : true,
                     name: currentContent.name,
                     type: currentContent.type,

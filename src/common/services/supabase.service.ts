@@ -1,7 +1,7 @@
 import { GetMimeType } from '@/utils/utils';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient, createClient } from '@supabase/supabase-js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -16,9 +16,8 @@ export class SupabaseService {
         this.supabase = createClient(supabaseUrl, supabaseKey);
     }
 
-    async uploadFile(file: Express.Multer.File, fileType: string) {
-        const fileName = file.originalname.replace(/\.[^/.]+$/, '');
-        const filePath = `${Date.now()}_${fileName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}.${fileType}`;
+    async uploadFile(file: Express.Multer.File, uid: string, fileType: string) {
+        const filePath = `${uid}/original.${fileType}`;
 
         const { data, error } = await this.supabase.storage.from('studymind').upload(filePath, file.buffer, {
             contentType: GetMimeType(fileType),

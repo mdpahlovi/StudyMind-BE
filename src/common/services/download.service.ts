@@ -30,12 +30,9 @@ export class DownloadService {
         private readonly supabaseService: SupabaseService,
     ) {}
 
-    async downloadFile(url: string, fileName: string, fileType: string) {
+    async downloadFile(url: string, uid: string, fileType: string) {
         try {
-            const filePath = fileName
-                .replace(/[^a-zA-Z0-9]/g, '_')
-                .toLowerCase()
-                .concat(`_${Date.now()}.${fileType}`);
+            const filePath = `${uid}/original.${fileType}`;
             const tempPath = path.join(path.join(__dirname, '..', '..', '..', 'public'), filePath);
 
             const response = await firstValueFrom(this.httpService.get(url, { responseType: 'stream' }));
@@ -56,12 +53,9 @@ export class DownloadService {
         }
     }
 
-    async downloadTool(contents: string, fileName: string, fileType: string) {
+    async downloadTool(contents: string, uid: string, fileType: string) {
         try {
-            const filePath = fileName
-                .replace(/[^a-zA-Z0-9]/g, '_')
-                .toLowerCase()
-                .concat(`_${Date.now()}.${fileType}`);
+            const filePath = `${uid}/original.${fileType}`;
 
             const response = await firstValueFrom(
                 this.httpService.post<ToolResponse>(`${this.configService.get('tools')}/${this.toolRoute(fileType)}`, {
