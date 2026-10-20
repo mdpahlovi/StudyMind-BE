@@ -6,12 +6,6 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { JwtService } from '@nestjs/jwt';
 import { eq } from 'drizzle-orm';
 
-export interface OAuthUserProfile {
-    name: string;
-    email: string;
-    picture: string;
-}
-
 @Injectable()
 export class AuthService {
     constructor(
@@ -87,33 +81,5 @@ export class AuthService {
                 refreshToken: this.jwtService.sign(createdUser, { expiresIn: '7d' }),
             },
         };
-    }
-
-    async validateOAuthLogin(profile: OAuthUserProfile, provider: 'GOOGLE' | 'FACEBOOK') {
-        const db = this.databaseService.database;
-        const [user] = await db.select().from(users).where(eq(users.email, profile.email));
-
-        if (user) {
-            const updateUserPayload = {
-                name: profile.name,
-                photo: profile.picture,
-                provider: provider,
-            };
-
-            const [updatedUser] = await db.update(users).set(updateUserPayload).where(eq(users.uid, user.uid)).returning();
-            return updatedUser;
-        } else {
-            const createUserPayload = {
-                isActive: true,
-                name: profile.name,
-                email: profile.email,
-                photo: profile.picture,
-                provider: provider,
-                password: null,
-            };
-
-            const [createdUser] = await db.insert(users).values(createUserPayload).returning();
-            return createdUser;
-        }
     }
 }

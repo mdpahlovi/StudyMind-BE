@@ -2,7 +2,7 @@ import { SupabaseService } from '@/common/services/supabase.service';
 import { VectorService } from '@/common/services/vector.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
-import { DocumentMetadata, libraryItem, LibraryItemMetadata, LibraryItemType } from '@/database/schemas/library.schema';
+import { DocumentMetadata, libraryItem, LibraryItemType } from '@/database/schemas/library.schema';
 import {
     CreateLibraryItemDto,
     DeleteBulkLibraryItemsDto,
@@ -10,6 +10,7 @@ import {
     UpdateLibraryItemDto,
 } from '@/modules/library/library.dto';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { and, asc, count, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 
 @Injectable()
@@ -233,16 +234,18 @@ export class LibraryService {
         const db = this.databaseService.database;
 
         const createdData = await db.transaction(async tx => {
+            const uid = randomUUID();
             const metadata = { ...body.metadata };
 
             if (file && 'fileType' in metadata) {
-                const fileData = await this.supabaseService.uploadFile(file, metadata.fileType);
+                const fileData = await this.supabaseService.uploadFile(file, uid, metadata.fileType);
                 Object.assign(metadata, fileData);
             }
 
             return await tx
                 .insert(libraryItem)
                 .values({
+                    uid,
                     isEmbedded: ['DOCUMENT', 'AUDIO', 'VIDEO', 'IMAGE'].includes(body.type) ? false : true,
                     name: body.name,
                     type: body.type,
@@ -278,30 +281,9 @@ export class LibraryService {
             throw new NotFoundException('Library item not found');
         }
 
-        // Drop vectors on deactivation so stale content cannot re-enter a chat context.
-        if (body.isActive === false) {
-            await this.vectorService.deleteByItemUid(uid);
-        }
-
-        const metadata = (body.metadata ?? itemData.metadata) as Partial<DocumentMetadata> | null;
-        const source = metadata?.filePath ?? metadata?.fileUrl;
-        const currentSource =
-            (itemData.metadata as Partial<DocumentMetadata> | null)?.filePath ??
-            (itemData.metadata as Partial<DocumentMetadata> | null)?.fileUrl;
-        const isDocument = itemData.type === 'DOCUMENT';
-
-        // Re-index on request, or when the source file changed while already indexed.
-        const shouldIndex =
-            isDocument && !!source && (body.isEmbedded === true || (currentSource !== source && itemData.isEmbedded === true));
-
-        let isEmbedded = body.isEmbedded;
-        if (shouldIndex) {
-            isEmbedded = await this.vectorService.indexDocumentItem({
-                uid,
-                type: itemData.type,
-                metadata: metadata as LibraryItemMetadata,
-            });
-        }
+        // Soft delete keeps document_chunk rows; retrieval filters on isActive, so nothing leaks.
+        // `isEmbedded: true` is the explicit retry path for a document left unembedded by a failed index.
+        const isEmbedded = body.isEmbedded === true ? await this.vectorService.indexDocumentItem(itemData) : undefined;
 
         const updatedData = await db
             .update(libraryItem)
@@ -337,10 +319,6 @@ export class LibraryService {
 
         const ownedUids = owned.map(item => item.uid);
 
-        if (body.isActive === false) {
-            await this.vectorService.deleteByItemUids(ownedUids);
-        }
-
         const updatedData = await db
             .update(libraryItem)
             .set({
@@ -355,56 +333,7 @@ export class LibraryService {
             throw new BadRequestException('Failed to update library item');
         }
 
-        // Soft delete drops the vectors, so restoring a document has to rebuild them.
-        if (body.isActive === true) {
-            const ancestorIds = await this.collectRemovedAncestorIds(
-                updatedData.map(item => item.parentId),
-                user.id,
-            );
-
-            const restoreTargets = [...updatedData];
-
-            if (ancestorIds.length) {
-                const restoredAncestors = await db
-                    .update(libraryItem)
-                    .set({ isActive: true, updatedAt: new Date() })
-                    .where(and(inArray(libraryItem.id, ancestorIds), eq(libraryItem.userId, user.id)))
-                    .returning();
-
-                restoreTargets.push(...restoredAncestors);
-            }
-
-            for (const item of restoreTargets) {
-                await this.vectorService.indexDocumentItem(item);
-            }
-        }
-
         return { message: 'Library item updated successfully', data: updatedData };
-    }
-
-    /** Returns the removed ancestor folders, so a restored item is never left hidden. */
-    private async collectRemovedAncestorIds(parentIds: (number | null)[], userId: number): Promise<number[]> {
-        const db = this.databaseService.database;
-        const collected = new Set<number>();
-        let frontier = parentIds.filter((parentId): parentId is number => parentId !== null && parentId !== undefined);
-
-        while (frontier.length) {
-            const parents = await db
-                .select({ id: libraryItem.id, parentId: libraryItem.parentId, isActive: libraryItem.isActive })
-                .from(libraryItem)
-                .where(and(inArray(libraryItem.id, frontier), eq(libraryItem.userId, userId)));
-
-            frontier = [];
-
-            for (const parent of parents) {
-                if (parent.isActive || collected.has(parent.id)) continue;
-
-                collected.add(parent.id);
-                if (parent.parentId !== null) frontier.push(parent.parentId);
-            }
-        }
-
-        return [...collected];
     }
 
     async deleteBulkLibraryItems(body: DeleteBulkLibraryItemsDto, user: User) {

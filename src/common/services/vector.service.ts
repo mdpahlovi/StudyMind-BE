@@ -145,35 +145,6 @@ export class VectorService {
         return rows.length;
     }
 
-    async deleteByItemUids(itemUids: string[]): Promise<number> {
-        if (!itemUids.length) return 0;
-
-        const db = this.databaseService.database;
-
-        const items = await db.select({ id: libraryItem.id }).from(libraryItem).where(inArray(libraryItem.uid, itemUids));
-        if (!items.length) return 0;
-
-        const deleted = await db
-            .delete(documentChunk)
-            .where(
-                inArray(
-                    documentChunk.itemId,
-                    items.map(item => item.id),
-                ),
-            )
-            .returning({ id: documentChunk.id });
-
-        if (deleted.length) {
-            this.logger.log(`Deleted ${deleted.length} chunks for ${itemUids.length} item(s)`);
-        }
-
-        return deleted.length;
-    }
-
-    async deleteByItemUid(itemUid: string): Promise<number> {
-        return this.deleteByItemUids([itemUid]);
-    }
-
     /** Returns a prompt-ready string, or '' when nothing matched. */
     async searchByItemUid(query: string, itemUid: string, userId: number, options: SearchOptions = {}): Promise<string> {
         const results = await this.search(query, userId, { ...options, itemUids: [itemUid] });
