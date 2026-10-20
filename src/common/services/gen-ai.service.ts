@@ -117,16 +117,21 @@ export class GenAIService {
         try {
             const IntentMessageTypes = ['CREATE', 'UPDATE', 'DELETE', 'READ', 'CHAT'];
             const IntentSchema = z.object({ messageType: z.enum(IntentMessageTypes) });
-            const structureModel = this.genAI.withStructuredOutput(IntentSchema);
+            const structureModel = this.genAI.withStructuredOutput(IntentSchema).withRetry({ stopAfterAttempt: 3 });
             const promptTemplate = ChatPromptTemplate.fromTemplate(
                 `You are StudyMind AI's intent classifier. Classify user's intent and respond accordingly.
                 
                 Message Type:
                 1. READ: When user @mention existing content or references content from previous conversation and wants to read/analyze/understand/learn/discuss it
-                2. CREATE: When user wants to create new content using creation keywords (create, make, generate, turn into, convert, build, add)
+                2. CREATE: ONLY when the user asks to produce a saved artifact (document/PDF, notes, flashcards, audio, image, folder) using a creation keyword (create, make, generate, write, record, turn into, convert, build, add).
                 3. UPDATE: When user wants to modify existing content using update keywords (edit, modify, change, update, revise, improve)  
                 4. DELETE: When user wants to delete existing content using delete keywords (delete, remove, trash, eliminate)
-                5. CHAT (Default): General questions without specific content management intent
+                5. CHAT (Default): General questions without specific content management intent. Examples:
+                   - "Compare X and Y in 3 bullet points" -> CHAT
+                   - "What was the first thing I asked?" -> CHAT
+                   - "Create a PDF study guide on the French Revolution" -> CREATE
+                   - "Make flashcards from our discussion" -> CREATE
+                   When unsure, choose CHAT.
                 
                 Previous Chat Summary: {prevSummary}
                 User Message: {userMessage}`,
@@ -171,7 +176,7 @@ export class GenAIService {
                 createdContent: z.array(z.object({ uid: z.string(), needContent: z.boolean(), purpose: z.string() })),
             });
 
-            const structureModel = this.genAI.withStructuredOutput(ResolveMentionSchema);
+            const structureModel = this.genAI.withStructuredOutput(ResolveMentionSchema).withRetry({ stopAfterAttempt: 3 });
             const promptTemplate = ChatPromptTemplate.fromTemplate(
                 `You are StudyMind AI's content resolver. Extract content references needed for the {messageType} operation.
 
@@ -245,7 +250,7 @@ export class GenAIService {
                 contentQueue: z.array(z.object({ name: z.string(), type: z.string(), parentId: z.number() })),
             });
 
-            const structureModel = this.genAI.withStructuredOutput(PlanContentSchema);
+            const structureModel = this.genAI.withStructuredOutput(PlanContentSchema).withRetry({ stopAfterAttempt: 3 });
             const promptTemplate = ChatPromptTemplate.fromTemplate(`
             You are StudyMind AI. Analyze the user's request and plan ONLY the structure of content to create.
 
@@ -399,7 +404,9 @@ export class GenAIService {
             for (const contentItem of state.contentCreationQueue) {
                 const config = contentTypeConfigs[contentItem.type];
 
-                const structureModel = this.genAI.withStructuredOutput(config.schema);
+                const structureModel = this.genAI
+                    .withStructuredOutput(config.schema, { method: 'functionCalling' })
+                    .withRetry({ stopAfterAttempt: 3 });
                 const promptTemplate = ChatPromptTemplate.fromTemplate(`
                 You are StudyMind AI. Generate content for a ${contentItem.type}.
                 
@@ -413,6 +420,10 @@ export class GenAIService {
                 Instructions: ${config.prompt}
                 
                 Generate appropriate metadata and content for this ${contentItem.type}.
+                
+                OUTPUT RULES:
+                - Return only the fields defined in the schema, with no markdown code fences around the output
+                - Put code examples, tables and lists inside the string fields as plain text or markdown
             `);
 
                 const response = await structureModel.invoke(
@@ -560,7 +571,10 @@ export class GenAIService {
             - Maintain educational focus
             - Reference previous topics when relevant
             - Guide learning progression naturally
-            - Offer to create study materials when appropriate`);
+            - Offer to create study materials when appropriate
+            - Use the full conversation history above and the summary below to answer questions about earlier turns. Quote earlier messages when asked
+
+            Conversation summary: ${state.prevSummary || 'No previous summary'}`);
 
             const response = await this.genAI.invoke([systemPrompt, ...prevMessages, new HumanMessage(state.userMessage)]);
 
@@ -627,7 +641,7 @@ export class GenAIService {
             ];
 
             const SummarySchema = z.object({ title: z.string(), summary: z.string() });
-            const structureModel = this.genAI.withStructuredOutput(SummarySchema);
+            const structureModel = this.genAI.withStructuredOutput(SummarySchema).withRetry({ stopAfterAttempt: 3 });
             const promptTemplate = ChatPromptTemplate.fromTemplate(
                 `You are StudyMind AI, an educational assistant. Generate a title and summary of the current conversation that captures the session’s context.
 
@@ -635,6 +649,8 @@ export class GenAIService {
                 - Use specific educational terms (e.g., "Calculus: Derivatives", "Biology: Cell Structure")
                 - Include subject + topic
                 - Must be fewer than 60 characters
+                - The title must describe the LATEST user message and any created content names in CONVERSATION DATA
+                - Do not use subjects that do not appear in CONVERSATION DATA
 
                 ## SUMMARY GUIDELINES:
                 Create a structured summary that includes:
