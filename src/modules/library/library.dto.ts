@@ -34,10 +34,6 @@ export class UpdateLibraryItemDto {
     @IsOptional()
     isActive: boolean;
 
-    @ApiProperty({ description: 'Set true to (re)build embeddings', example: true })
-    @IsOptional()
-    isEmbedded: boolean;
-
     @ApiProperty({ description: 'Library item name', example: 'Computer Science' })
     @IsOptional()
     name: string;

@@ -3,7 +3,6 @@ import { VectorService } from '@/common/services/vector.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
 import { chatMessages, chatSessions } from '@/database/schemas/chat.schema';
-import { DocumentMetadata } from '@/database/schemas/library.schema';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray } from 'drizzle-orm';
 import { DeleteBulkChatSessionDto, RequestQueryDto, UpdateBulkChatSessionDto, UpdateChatSessionDto } from './chat.dto';
@@ -80,7 +79,7 @@ export class ChatService {
     async requestQuery(uid: string, body: RequestQueryDto, user: User) {
         const db = this.databaseService.database;
 
-        const { payload, createdDocuments } = await db.transaction(async tx => {
+        const { createdData, payload } = await db.transaction(async tx => {
             const currMessage = body.message[body.message.length - 1];
             const chatMessage = body.message;
 
@@ -131,12 +130,7 @@ export class ChatService {
             }
 
             return {
-                // Indexed after the transaction commits so embedding never holds a connection open.
-                createdDocuments: response.createdContent.filter(item => {
-                    if (item.type !== 'DOCUMENT') return false;
-                    const metadata = item.metadata as Partial<DocumentMetadata> | null;
-                    return !!(metadata?.filePath || metadata?.fileUrl);
-                }),
+                createdData: response.createdContent,
                 payload: {
                     message: 'Chat session created successfully',
                     data: {
@@ -148,8 +142,8 @@ export class ChatService {
             };
         });
 
-        for (const document of createdDocuments) {
-            await this.vectorService.indexDocumentItem(document);
+        for (const data of createdData) {
+            await this.vectorService.indexDocumentItem(data);
         }
 
         return payload;

@@ -260,15 +260,9 @@ export class LibraryService {
             throw new BadRequestException('Failed to create library item');
         }
 
-        // Index after commit so the item survives an embedding failure; isEmbedded reports the truth.
-        const createdItem = createdData[0];
+        const isEmbedded = await this.vectorService.indexDocumentItem(createdData[0]);
 
-        if (createdItem.type === 'DOCUMENT') {
-            const isEmbedded = await this.vectorService.indexDocumentItem(createdItem);
-            return { message: 'Library item created successfully', data: { ...createdItem, isEmbedded } };
-        }
-
-        return { message: 'Library item created successfully', data: createdItem };
+        return { message: 'Library item created successfully', data: { ...createdData[0], isEmbedded } };
     }
 
     async updateLibraryItem(uid: string, body: UpdateLibraryItemDto, user: User) {
@@ -281,15 +275,10 @@ export class LibraryService {
             throw new NotFoundException('Library item not found');
         }
 
-        // Soft delete keeps document_chunk rows; retrieval filters on isActive, so nothing leaks.
-        // `isEmbedded: true` is the explicit retry path for a document left unembedded by a failed index.
-        const isEmbedded = body.isEmbedded === true ? await this.vectorService.indexDocumentItem(itemData) : undefined;
-
         const updatedData = await db
             .update(libraryItem)
             .set({
                 ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
-                ...(isEmbedded !== undefined ? { isEmbedded } : {}),
                 ...(body.name ? { name: body.name } : {}),
                 ...(body.parentId !== undefined ? { parentId: body.parentId } : {}),
                 ...(body.metadata ? { metadata: body.metadata } : {}),
