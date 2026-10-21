@@ -64,4 +64,10 @@ export class LibraryController {
     async updateLibraryItem(@Param('uid') uid: string, @Body() body: UpdateLibraryItemDto, @CurrentUser() user: User) {
         return this.libraryService.updateLibraryItem(uid, body, user);
     }
+
+    @ApiOperation({ summary: 'Retry processing for a failed library item' })
+    @Post(':uid/retry')
+    async retry(@Param('uid') uid: string, @CurrentUser() user: User) {
+        return this.libraryService.retry(uid, user);
+    }
 }

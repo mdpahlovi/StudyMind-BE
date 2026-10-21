@@ -143,7 +143,8 @@ export class ChatService {
         });
 
         for (const data of createdData) {
-            await this.vectorService.indexDocumentItem(data);
+            if (!data.content) continue;
+            await this.vectorService.indexMarkdownContent(data.uid, data.content);
         }
 
         return payload;

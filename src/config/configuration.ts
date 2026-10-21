@@ -28,4 +28,9 @@ export default () => ({
         minScore: parseFloat(process.env.RETRIEVAL_MIN_SCORE ?? '0.5'),
     },
     tools: process.env.STUDYMIND_TOOLS,
+    rabbitmq: {
+        url: process.env.RABBITMQ_URL,
+        processingQueue: process.env.RABBITMQ_PROCESSING_QUEUE ?? 'library.processing',
+        processedQueue: process.env.RABBITMQ_PROCESSED_QUEUE ?? 'library.processed',
+    },
 });

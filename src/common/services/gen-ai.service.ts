@@ -491,12 +491,14 @@ export class GenAIService {
                 .insert(libraryItem)
                 .values({
                     uid,
-                    isEmbedded: ['DOCUMENT', 'AUDIO', 'VIDEO', 'IMAGE'].includes(currentContent.type) ? false : true,
+                    isEmbedded: currentContent.content ? false : true,
+                    processingStatus: 'processed',
                     name: currentContent.name,
                     type: currentContent.type,
                     parentId: currentContent.parentId === -1 ? createdContent[createdContent.length - 1].id : currentContent.parentId,
                     userId: state.userId,
                     metadata: { ...(currentContent?.metadata || {}), ...metadata } as LibraryItemMetadata,
+                    content: currentContent.content,
                 })
                 .returning();
 
@@ -830,14 +832,16 @@ export class GenAIService {
                         break;
                     }
                     case 'AUDIO':
-                        content = 'Audio content processing not implemented yet';
-                        break;
                     case 'VIDEO':
-                        content = 'Video content processing not implemented yet';
+                    case 'IMAGE': {
+                        const query = [state.userMessage, item.purpose].filter(Boolean).join('\n');
+                        const contexts = await this.vectorService.searchByItemUid(query, itemD.uid, state.userId);
+
+                        if (!contexts) break;
+
+                        content = await this.generateResponse(contexts, systemPrompt);
                         break;
-                    case 'IMAGE':
-                        content = 'Image content processing not implemented yet';
-                        break;
+                    }
                 }
             }
 

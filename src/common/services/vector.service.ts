@@ -1,16 +1,11 @@
 import { EmbeddingService } from '@/common/services/embedding.service';
-import { SupabaseService } from '@/common/services/supabase.service';
 import { DatabaseService } from '@/database/database.service';
 import { documentChunk, DocumentChunkMetadata } from '@/database/schemas/chunk.schema';
-import { DocumentMetadata, libraryItem, LibraryItemMetadata, LibraryItemType } from '@/database/schemas/library.schema';
-import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
-import { Document } from '@langchain/core/documents';
+import { libraryItem } from '@/database/schemas/library.schema';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, cosineDistance, eq, inArray } from 'drizzle-orm';
-import * as fs from 'fs';
-import * as path from 'path';
 
 export type RetrievedChunk = {
     itemUid: string;
@@ -37,7 +32,6 @@ export class VectorService {
     constructor(
         private readonly databaseService: DatabaseService,
         private readonly embeddingService: EmbeddingService,
-        private readonly supabaseService: SupabaseService,
         private readonly configService: ConfigService,
     ) {
         this.textSplitter = new RecursiveCharacterTextSplitter({
@@ -47,53 +41,12 @@ export class VectorService {
         });
     }
 
-    /** Replaces existing chunks, so it is safe to call repeatedly. */
-    async indexStoredDocument(storagePath: string, itemUid: string): Promise<number> {
-        return this.indexTemporaryFile(await this.supabaseService.downloadFile(storagePath), itemUid);
-    }
-
-    /** Never throws: on failure `isEmbedded` is set to false so the client can retry via PATCH. */
-    async indexDocumentItem(item: { uid: string; type: LibraryItemType; metadata: LibraryItemMetadata | null }): Promise<boolean> {
-        const metadata = item.metadata as Partial<DocumentMetadata> | null;
-        const storagePath = metadata?.filePath;
-
-        if (item.type !== 'DOCUMENT' || !storagePath) {
-            return false;
-        }
-
-        const db = this.databaseService.database;
-
-        try {
-            const chunks = await this.indexStoredDocument(storagePath, item.uid);
-
-            await db.update(libraryItem).set({ isEmbedded: true, updatedAt: new Date() }).where(eq(libraryItem.uid, item.uid));
-            this.logger.log(`Indexed document ${item.uid} into ${chunks} chunks`);
-            return true;
-        } catch (error) {
-            await db
-                .update(libraryItem)
-                .set({ isEmbedded: false, updatedAt: new Date() })
-                .where(eq(libraryItem.uid, item.uid))
-                .catch(() => undefined);
-
-            this.logger.error(`Failed to index document ${item.uid}: ${error instanceof Error ? error.message : String(error)}`);
-            return false;
-        }
-    }
-
-    private async indexTemporaryFile(tempPath: string, itemUid: string): Promise<number> {
-        try {
-            return await this.indexPDF(tempPath, itemUid);
-        } finally {
-            if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-        }
-    }
-
-    async indexPDF(filePath: string, itemUid: string): Promise<number> {
+    /** Indexes Markdown converted by the Tools service (Docling / Whisper). */
+    async indexMarkdownContent(itemUid: string, markdown: string): Promise<number> {
         const db = this.databaseService.database;
 
         const [item] = await db
-            .select({ id: libraryItem.id, userId: libraryItem.userId })
+            .select({ id: libraryItem.id, userId: libraryItem.userId, name: libraryItem.name })
             .from(libraryItem)
             .where(eq(libraryItem.uid, itemUid));
 
@@ -101,32 +54,32 @@ export class VectorService {
             throw new NotFoundException(`Library item not found for uid: ${itemUid}`);
         }
 
-        const documents = await this.processPDF(filePath);
-        if (!documents.length) {
-            throw new BadRequestException('No extractable content found in pdf');
+        if (!markdown || !markdown.trim()) {
+            await db.update(libraryItem).set({ isEmbedded: true, updatedAt: new Date() }).where(eq(libraryItem.uid, itemUid));
+            return 0;
         }
 
-        const splitDocs = await this.textSplitter.splitDocuments(documents);
-        if (!splitDocs.length) {
-            throw new BadRequestException('No chunks produced from pdf');
+        const chunks = await this.textSplitter.splitText(markdown);
+        if (!chunks.length) {
+            await db.update(libraryItem).set({ isEmbedded: true, updatedAt: new Date() }).where(eq(libraryItem.uid, itemUid));
+            return 0;
         }
 
-        // Embed before deleting so a provider failure cannot destroy a working index.
-        const embeddings = await this.embeddingService.embedDocuments(splitDocs.map(doc => doc.pageContent));
-
+        const embeddings = await this.embeddingService.embedDocuments(chunks);
         const indexedAt = new Date().toISOString();
-        const rows = splitDocs.map((doc, index) => ({
+
+        const rows = chunks.map((chunk, index) => ({
             itemId: item.id,
             userId: item.userId,
             chunkIndex: index,
-            content: doc.pageContent,
+            content: chunk,
             metadata: {
-                source: (doc.metadata?.fileName as string) ?? path.basename(filePath),
-                pageNumber: this.readPageNumber(doc.metadata),
-                totalPages: (doc.metadata?.totalPages as number) ?? null,
+                source: item.name,
+                pageNumber: null,
+                totalPages: null,
                 chunkIndex: index,
-                totalChunks: splitDocs.length,
-                contentLength: doc.pageContent.length,
+                totalChunks: chunks.length,
+                contentLength: chunk.length,
                 indexedAt,
             } satisfies DocumentChunkMetadata,
             embedding: embeddings[index],
@@ -138,10 +91,11 @@ export class VectorService {
             for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
                 await tx.insert(documentChunk).values(rows.slice(i, i + INSERT_BATCH_SIZE));
             }
+
+            await tx.update(libraryItem).set({ isEmbedded: true, updatedAt: new Date() }).where(eq(libraryItem.uid, itemUid));
         });
 
-        this.logger.log(`Indexed ${rows.length} chunks for item ${itemUid}`);
-
+        this.logger.log(`Indexed ${rows.length} markdown chunks for item ${itemUid}`);
         return rows.length;
     }
 
@@ -201,39 +155,5 @@ export class VectorService {
                 score: 1 - Number(row.distance),
             }))
             .filter(row => row.score >= minScore);
-    }
-
-    private async processPDF(filePath: string): Promise<Document[]> {
-        if (!fs.existsSync(filePath)) {
-            throw new BadRequestException(`PDF file not found: ${filePath}`);
-        }
-
-        const pdfLoader = new PDFLoader(filePath, { splitPages: true });
-
-        let documents: Document[];
-        try {
-            documents = await pdfLoader.load();
-        } catch (error) {
-            throw new BadRequestException(`Failed to load pdf: ${error instanceof Error ? error.message : 'unknown error'}`);
-        }
-
-        const pages = documents.filter(doc => doc.pageContent.trim().length > 0);
-
-        this.logger.log(`Loaded ${pages.length}/${documents.length} non-empty pages from ${path.basename(filePath)}`);
-
-        return pages.map(doc => {
-            doc.metadata = {
-                ...doc.metadata,
-                fileName: (doc.metadata?.fileName as string) ?? path.basename(filePath),
-                totalPages: documents.length,
-                contentLength: doc.pageContent.length,
-            };
-            return doc;
-        });
-    }
-
-    private readPageNumber(metadata: Document['metadata'] | undefined): number | null {
-        const loc = metadata?.loc as { pageNumber?: number } | undefined;
-        return typeof loc?.pageNumber === 'number' ? loc.pageNumber : null;
     }
 }

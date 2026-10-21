@@ -1,27 +1,75 @@
+import { RabbitMQService, type LibraryProcessedPayload } from '@/common/services/rabbitmq.service';
 import { SupabaseService } from '@/common/services/supabase.service';
 import { VectorService } from '@/common/services/vector.service';
 import { DatabaseService } from '@/database/database.service';
 import { User } from '@/database/schemas';
-import { DocumentMetadata, libraryItem, LibraryItemType } from '@/database/schemas/library.schema';
+import { LibraryItemType, libraryItem } from '@/database/schemas/library.schema';
 import {
     CreateLibraryItemDto,
     DeleteBulkLibraryItemsDto,
     UpdateBulkLibraryItemsDto,
     UpdateLibraryItemDto,
 } from '@/modules/library/library.dto';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, type OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { and, asc, count, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 
 @Injectable()
-export class LibraryService {
+export class LibraryService implements OnModuleInit {
     private readonly logger = new Logger(LibraryService.name);
 
     constructor(
         private readonly databaseService: DatabaseService,
         private readonly supabaseService: SupabaseService,
         private readonly vectorService: VectorService,
+        private readonly rabbitmq: RabbitMQService,
     ) {}
+
+    onModuleInit(): void {
+        void this.rabbitmq.consumeLibraryProcessed(payload => this.handleProcessed(payload));
+    }
+
+    private async handleProcessed(payload: LibraryProcessedPayload): Promise<void> {
+        const itemUid = payload.itemUid;
+        if (!itemUid) return;
+
+        const db = this.databaseService.database;
+        const [item] = await db
+            .select({ id: libraryItem.id, updatedAt: libraryItem.updatedAt })
+            .from(libraryItem)
+            .where(eq(libraryItem.uid, itemUid))
+            .limit(1);
+
+        if (!item || (payload.occurredAt && item.updatedAt && new Date(payload.occurredAt) < item.updatedAt)) {
+            return;
+        }
+
+        if (payload.status === 'success' && payload.text !== null) {
+            await db
+                .update(libraryItem)
+                .set({
+                    content: payload.text,
+                    processingStatus: 'processed',
+                    updatedAt: new Date(),
+                })
+                .where(eq(libraryItem.uid, itemUid));
+
+            try {
+                await this.vectorService.indexMarkdownContent(itemUid, payload.text);
+            } catch (error) {
+                this.logger.error(`Failed to index vectors for item ${itemUid}`, error);
+            }
+        } else {
+            await db
+                .update(libraryItem)
+                .set({
+                    processingStatus: 'failed',
+                    isEmbedded: false,
+                    updatedAt: new Date(),
+                })
+                .where(eq(libraryItem.uid, itemUid));
+        }
+    }
 
     async getLibraryItems(query: { [key: string]: string }, user: User) {
         const db = this.databaseService.database;
@@ -246,7 +294,8 @@ export class LibraryService {
                 .insert(libraryItem)
                 .values({
                     uid,
-                    isEmbedded: ['DOCUMENT', 'AUDIO', 'VIDEO', 'IMAGE'].includes(body.type) ? false : true,
+                    isEmbedded: 'fileUrl' in metadata ? false : true,
+                    processingStatus: 'fileUrl' in metadata ? 'pending' : 'processed',
                     name: body.name,
                     type: body.type,
                     parentId: body.parentId,
@@ -260,9 +309,45 @@ export class LibraryService {
             throw new BadRequestException('Failed to create library item');
         }
 
-        const isEmbedded = await this.vectorService.indexDocumentItem(createdData[0]);
+        const createdItem = createdData[0];
 
-        return { message: 'Library item created successfully', data: { ...createdData[0], isEmbedded } };
+        if ('fileUrl' in createdItem.metadata) {
+            await this.rabbitmq.publishLibraryEvent('created', createdItem, createdItem.metadata.fileUrl);
+        }
+
+        return { message: 'Library item created successfully', data: createdItem };
+    }
+
+    async retry(uid: string, user: User) {
+        const db = this.databaseService.database;
+        const where = and(eq(libraryItem.uid, uid), eq(libraryItem.userId, user.id));
+
+        const itemData = await db.query.libraryItem.findFirst({ where });
+
+        if (!itemData) {
+            throw new NotFoundException('Library item not found');
+        }
+
+        if (!('fileUrl' in itemData.metadata)) {
+            throw new BadRequestException('Only uploaded items can be reprocessed');
+        }
+
+        if (itemData.processingStatus !== 'failed') {
+            throw new BadRequestException('Only items whose processing failed can be retried');
+        }
+
+        await db
+            .update(libraryItem)
+            .set({ processingStatus: 'pending', isEmbedded: false, updatedAt: new Date() })
+            .where(eq(libraryItem.uid, uid));
+
+        itemData.processingStatus = 'pending';
+        itemData.isEmbedded = false;
+        itemData.updatedAt = new Date();
+
+        await this.rabbitmq.publishLibraryEvent('updated', itemData, itemData.metadata.fileUrl);
+
+        return { message: 'Library item processing restarted', data: itemData };
     }
 
     async updateLibraryItem(uid: string, body: UpdateLibraryItemDto, user: User) {
@@ -298,7 +383,7 @@ export class LibraryService {
         const db = this.databaseService.database;
 
         const owned = await db
-            .select({ uid: libraryItem.uid })
+            .select({ id: libraryItem.id })
             .from(libraryItem)
             .where(and(inArray(libraryItem.uid, body.uid), eq(libraryItem.userId, user.id)));
 
@@ -306,7 +391,7 @@ export class LibraryService {
             throw new NotFoundException('Library item not found');
         }
 
-        const ownedUids = owned.map(item => item.uid);
+        const ownedIds = owned.map(item => item.id);
 
         const updatedData = await db
             .update(libraryItem)
@@ -315,7 +400,7 @@ export class LibraryService {
                 ...(body.parentId !== undefined ? { parentId: body.parentId } : {}),
                 updatedAt: new Date(),
             })
-            .where(and(inArray(libraryItem.uid, ownedUids), eq(libraryItem.userId, user.id)))
+            .where(and(inArray(libraryItem.id, ownedIds), eq(libraryItem.userId, user.id)))
             .returning();
 
         if (!updatedData[0] || !updatedData[0]?.uid) {
@@ -342,19 +427,15 @@ export class LibraryService {
             user.id,
         );
 
-        const removedItems = await db.select({ metadata: libraryItem.metadata }).from(libraryItem).where(inArray(libraryItem.id, itemIds));
-
         // document_chunk rows are removed by the ON DELETE CASCADE foreign key.
-        const deleted = await db.transaction(async tx =>
-            tx
-                .delete(libraryItem)
-                .where(and(inArray(libraryItem.id, itemIds), eq(libraryItem.userId, user.id)))
-                .returning({ uid: libraryItem.uid }),
-        );
+        const deletedData = await db
+            .delete(libraryItem)
+            .where(and(inArray(libraryItem.id, itemIds), eq(libraryItem.userId, user.id)))
+            .returning();
 
-        await this.removeStoredFiles(removedItems.map(item => (item.metadata as Partial<DocumentMetadata> | null)?.filePath));
+        await this.removeStoredFolders(deletedData.map(item => item.uid));
 
-        return { message: 'Removed items deleted permanently', data: deleted };
+        return { message: 'Removed items deleted permanently', data: deletedData };
     }
 
     private async collectItemIds(rootIds: number[], userId: number): Promise<number[]> {
@@ -375,16 +456,15 @@ export class LibraryService {
         return [...collected];
     }
 
-    private async removeStoredFiles(paths: (string | undefined)[]) {
-        const storedPaths = paths.filter((storedPath): storedPath is string => !!storedPath);
-        if (!storedPaths.length) return;
+    private async removeStoredFolders(uids: string[]) {
+        if (!uids.length) return;
 
         try {
-            await this.supabaseService.storage.remove(storedPaths);
+            await Promise.all(uids.map(uid => this.supabaseService.deleteFolder(uid)));
         } catch (error) {
             // The database rows are already gone; a leftover file is not worth failing the request.
             this.logger.warn(
-                `Failed to remove ${storedPaths.length} stored file(s): ${error instanceof Error ? error.message : String(error)}`,
+                `Failed to remove storage folders for items [${uids.join(', ')}]: ${error instanceof Error ? error.message : String(error)}`,
             );
         }
     }

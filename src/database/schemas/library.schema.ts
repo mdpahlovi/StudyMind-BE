@@ -1,7 +1,9 @@
-import { type AnyPgColumn, boolean, index, integer, jsonb, pgEnum, pgTable, serial, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, jsonb, pgEnum, pgTable, serial, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { users } from './user.schema';
 
 export const libraryItemTypeEnum = pgEnum('item_type', ['FOLDER', 'NOTE', 'DOCUMENT', 'FLASHCARD', 'AUDIO', 'VIDEO', 'IMAGE']);
+export const processingStatusEnum = pgEnum('processing_status', ['pending', 'processed', 'failed']);
 
 export const libraryItem = pgTable(
     'library_item',
@@ -17,6 +19,8 @@ export const libraryItem = pgTable(
             .notNull()
             .references(() => users.id, { onDelete: 'cascade' }),
         metadata: jsonb('metadata').$type<LibraryItemMetadata>(),
+        processingStatus: processingStatusEnum('processing_status').default('pending'),
+        content: text('content'),
         createdAt: timestamp('created_at').defaultNow(),
         updatedAt: timestamp('updated_at').defaultNow(),
     },
@@ -24,6 +28,7 @@ export const libraryItem = pgTable(
 );
 
 export type LibraryItemType = (typeof libraryItemTypeEnum.enumValues)[number];
+export type ProcessingStatus = (typeof processingStatusEnum.enumValues)[number];
 
 export type FolderMetadata = { color: string; icon: string };
 export type NoteMetadata = { description: string; notes: string };
